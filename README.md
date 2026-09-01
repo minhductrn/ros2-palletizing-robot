@@ -1,2 +1,2 @@
 # ros2-palletizing-robot
-ROS 2 rpbotics learning project
+ROS 2 robotics learning project
