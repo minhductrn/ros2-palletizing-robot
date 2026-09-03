@@ -23,7 +23,7 @@ Workspace
 ROS 2 Packages
 
 1. **`my_robot_interfaces`**: An `ament_cmake` package dedicated to compiling custom ROS 2 messages, services, and actions.
-2. **`my_first_ros2_package`**: An `ament_python` package containing the execution scripts for our simulation nodes.
+2. **`my_first_ros2_package`**: An `ament_python` package containing execution scripts for our synchronized simulation nodes.
 
 Current package structure:
 
@@ -32,6 +32,8 @@ Current package structure:
     │   ├── my_robot_interfaces/
     │   │   ├── msg/
     │   │   │   └── BoxInfo.msg
+    │   │   ├── srv/
+    │   │   │   └── SetGripperStatus.srv
     │   │   ├── CMakeLists.txt
     │   │   └── package.xml
     │   │
@@ -40,7 +42,8 @@ Current package structure:
     │       │   ├── __init__.py
     │       │   ├── hello_node.py
     │       │   ├── publisher_node.py
-    │       │   └── subscriber_node.py
+    │       │   ├── subscriber_node.py
+    │       │   └── gripper_service_node.py
     │       │
     │       ├── launch/
     │       │   └── my_nodes_launch.py
@@ -56,15 +59,11 @@ Current package structure:
 What I Have Learned
 1. ROS 2 Node
 
-Created my first Python ROS 2 node:
-
-`hello_node`
-
-The node uses rclpy and runs inside the ROS 2 system.
+Created standard Python ROS 2 execution targets using `rclpy` to compartmentalize robot software features.
 
 2. Custom Message Interface (`BoxInfo.msg`)
 
-Designed a custom interface layout to handle industrial telemetry data rather than simple string streams. The packet structural layout contains:
+Designed a custom interface layout to handle industrial telemetry data streams containing kinematics payloads:
 ```text
 int32 box_id       # Sequence unique counter
 float64 x          # 3D position coordinate (X-axis in meters)
@@ -74,31 +73,22 @@ float64 weight     # Package mass payload (in kg)
 string status      # Operational cycle flag ('In Queue' / 'Placed on Pallet')
 ```
 
-3. Publisher
+3. Custom Service Interface (`SetGripperStatus.srv`)
 
-Created a Python publisher node:
-
-`/my_pub_node`
-
-The publisher generates real-time randomized box geometry configurations and streams them to:
-
-`/box_chatter`
-
-Example payload log output:
+Developed a Request-Response interaction architecture to safely change the pneumatic end-effector state:
 ```text
-📦 Published Box #0 | Pos: (0.355, -0.231, 0.432) | Wt: 12.83kg | Status: In Queue
-📦 Published Box #1 | Pos: (0.311, 0.415, 1.259) | Wt: 3.29kg | Status: Placed on Pallet
+bool activate      # Request: True to engage suction, False to release
+---
+bool success       # Response: Execution outcome affirmation
+string message     # Response: Status log breakdown text
 ```
 
-4. Subscriber
+4. Autonomous Event-Driven Control Pipeline
 
-Created a Python subscriber node:
-
-`/my_sub_node`
-
-The subscriber securely receives, unpacks, and processes telemetry fields from:
-
-`/box_chatter`
+Integrated both **Topics** and **Services** into a single closed-loop automated logistics design:
+*   **`my_pub_node`**: Generates real-time randomized box geometry configurations and streams them over the `/box_chatter` topic.
+*   **`my_sub_node`**: Evaluates incoming telemetry fields. If a box has a status of `In Queue`, it instantly acts as a **Service Client**, auto-triggering an asynchronous call to the gripper controller.
+*   **`my_gripper_srv_node`**: Processes the incoming state-change requests to engage/disengage vacuum suction and sends back execution receipts.
 
 5. ROS 2 Communication Graph
 
@@ -106,15 +96,9 @@ The system communication pipeline verified and visualised using **`rqt_graph`**:
 
 ![ROS 2 Network Graph](rosgraph.png)
 
-6. ROS 2 Launch
+6. Automated Multi-Node Launch Execution
 
-Created:
-
-`my_nodes_launch.py`
-
-The launch file starts the publisher and subscriber together.
-
-Instead of starting each node separately, I can start the system with one command:
+Utilized a centralized `my_nodes_launch.py` script to orchestrate and bring up the complete 3-node lifecycle concurrently inside a single shell:
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
@@ -132,33 +116,18 @@ Source workspace
 
     source install/setup.bash
 
-Run publisher
-
-    ros2 run my_first_ros2_package publisher_node
-
-Run subscriber
-
-    ros2 run my_first_ros2_package subscriber_node
-
-Start the complete system
+Start the complete autonomous system
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
 Inspect custom interfaces
 
     ros2 interface show my_robot_interfaces/msg/BoxInfo
+    ros2 interface show my_robot_interfaces/srv/SetGripperStatus
 
-Inspect topics
+Trigger gripper manually
 
-    ros2 topic list
-
-    ros2 topic info /box_chatter
-
-    ros2 topic echo /box_chatter
-
-Inspect nodes
-
-    ros2 node list
+    ros2 service call /set_gripper_status my_robot_interfaces/srv/SetGripperStatus "{activate: true}"
 
 Learning Roadmap
 
@@ -176,9 +145,9 @@ My current learning path:
         ↓
         Custom Messages (.msg)
         ↓
-        Services
+        Services (.srv)
         ↓
-        Actions
+        Actions (.action)
         ↓
         Parameters
         ↓
@@ -226,13 +195,13 @@ ROS 2 Fundamentals
     ☑ View ROS 2 communication graph
     ☑ Create launch file
     ☑ Create Custom Message (.msg) interface package
+    ☑ Implement Request-Response Gripper Services (.srv)
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
 
-    ☐ ROS 2 Services (Client/Server Gripper control)
-    ☐ ROS 2 Actions
+    ☐ ROS 2 Actions (Trajectory and path planning execution tracking)
     ☐ Parameters
     ☐ Launch file improvements
     ☐ TF2
