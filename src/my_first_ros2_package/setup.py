@@ -30,6 +30,7 @@ setup(
             'hello_node = my_first_ros2_package.hello_node:main',
             'publisher_node = my_first_ros2_package.publisher_node:main',
             'subscriber_node = my_first_ros2_package.subscriber_node:main',
+            'gripper_service_node = my_first_ros2_package.gripper_service_node:main',
         ],
     },
 )
