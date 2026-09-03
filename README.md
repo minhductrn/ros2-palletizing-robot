@@ -20,14 +20,21 @@ Workspace
 
     ~/ros2_ws
 
-ROS 2 Package
+ROS 2 Packages
 
-    my_first_ros2_package
+1. **`my_robot_interfaces`**: An `ament_cmake` package dedicated to compiling custom ROS 2 messages, services, and actions.
+2. **`my_first_ros2_package`**: An `ament_python` package containing the execution scripts for our simulation nodes.
 
 Current package structure:
 
     ros2_ws/
     ├── src/
+    │   ├── my_robot_interfaces/
+    │   │   ├── msg/
+    │   │   │   └── BoxInfo.msg
+    │   │   ├── CMakeLists.txt
+    │   │   └── package.xml
+    │   │
     │   └── my_first_ros2_package/
     │       ├── my_first_ros2_package/
     │       │   ├── __init__.py
@@ -51,54 +58,59 @@ What I Have Learned
 
 Created my first Python ROS 2 node:
 
-hello_node
+`hello_node`
 
 The node uses rclpy and runs inside the ROS 2 system.
-2. Publisher
 
-Created a Python publisher:
+2. Custom Message Interface (`BoxInfo.msg`)
 
-/my_pub_node
+Designed a custom interface layout to handle industrial telemetry data rather than simple string streams. The packet structural layout contains:
+```text
+int32 box_id       # Sequence unique counter
+float64 x          # 3D position coordinate (X-axis in meters)
+float64 y          # 3D position coordinate (Y-axis in meters)
+float64 z          # 3D position coordinate (Z-axis in meters)
+float64 weight     # Package mass payload (in kg)
+string status      # Operational cycle flag ('In Queue' / 'Placed on Pallet')
+```
 
-The publisher sends String messages to:
+3. Publisher
 
-/chatter
+Created a Python publisher node:
 
-Example:
+`/my_pub_node`
 
-Hello from my publisher: 0
-Hello from my publisher: 1
-Hello from my publisher: 2
+The publisher generates real-time randomized box geometry configurations and streams them to:
 
-3. Subscriber
+`/box_chatter`
 
-Created a Python subscriber:
+Example payload log output:
+```text
+📦 Published Box #0 | Pos: (0.355, -0.231, 0.432) | Wt: 12.83kg | Status: In Queue
+📦 Published Box #1 | Pos: (0.311, 0.415, 1.259) | Wt: 3.29kg | Status: Placed on Pallet
+```
 
-/my_sub_node
+4. Subscriber
 
-The subscriber receives messages from:
+Created a Python subscriber node:
 
-/chatter
+`/my_sub_node`
 
-4. ROS 2 Communication Graph
+The subscriber securely receives, unpacks, and processes telemetry fields from:
 
-My current ROS 2 graph:
+`/box_chatter`
 
-/my_pub_node
-      │
-      │ publishes
-      ▼
-  /chatter
-      │
-      │ subscribes
-      ▼
-/my_sub_node
+5. ROS 2 Communication Graph
 
-5. ROS 2 Launch
+The system communication pipeline verified and visualised using **`rqt_graph`**:
+
+![ROS 2 Network Graph](rosgraph.png)
+
+6. ROS 2 Launch
 
 Created:
 
-my_nodes_launch.py
+`my_nodes_launch.py`
 
 The launch file starts the publisher and subscriber together.
 
@@ -132,13 +144,17 @@ Start the complete system
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
+Inspect custom interfaces
+
+    ros2 interface show my_robot_interfaces/msg/BoxInfo
+
 Inspect topics
 
     ros2 topic list
 
-    ros2 topic info /chatter
+    ros2 topic info /box_chatter
 
-    ros2 topic echo /chatter
+    ros2 topic echo /box_chatter
 
 Inspect nodes
 
@@ -157,6 +173,8 @@ My current learning path:
         Topics
         ↓
         Publishers / Subscribers
+        ↓
+        Custom Messages (.msg)
         ↓
         Services
         ↓
@@ -207,12 +225,13 @@ ROS 2 Fundamentals
     ☑ Understand topics
     ☑ View ROS 2 communication graph
     ☑ Create launch file
+    ☑ Create Custom Message (.msg) interface package
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
 
-    ☐ ROS 2 Services
+    ☐ ROS 2 Services (Client/Server Gripper control)
     ☐ ROS 2 Actions
     ☐ Parameters
     ☐ Launch file improvements
