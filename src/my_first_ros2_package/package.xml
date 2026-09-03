@@ -17,4 +17,5 @@
   <export>
     <build_type>ament_python</build_type>
   </export>
+  <depend>my_robot_interfaces</depend>
 </package>

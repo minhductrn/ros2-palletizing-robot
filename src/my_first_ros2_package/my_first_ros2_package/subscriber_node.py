@@ -1,34 +1,36 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+# Import custom message giống như bên phía publisher
+from my_robot_interfaces.msg import BoxInfo
 
 
 class SubscriberNode(Node):
 
     def __init__(self):
-        super().__init__('subscriber_node')
+        super().__init__('my_sub_node')
 
-        # Tạo subscriber lắng nghe từ topic 'chatter'
+        # Lắng nghe dữ liệu BoxInfo trên topic 'box_chatter'
         self.subscription = self.create_subscription(
-            String,
-            'chatter',
+            BoxInfo,
+            'box_chatter',
             self.listener_callback,
             10
         )
-        self.subscription  # Ngăn chặn cảnh báo biến không sử dụng
+        self.subscription
 
     def listener_callback(self, msg):
-        # Hàm này tự động kích hoạt mỗi khi nhận được dữ liệu từ publisher
-        self.get_logger().info(f'I heard: "{msg.data}"')
+        # Tách nhỏ các biến trong gói tin để xử lý logic hoặc in ra màn hình
+        self.get_logger().info(
+            f'📥 Heard Box #{msg.box_id} -> '
+            f'X: {msg.x}m, Y: {msg.y}m, Z: {msg.z}m | '
+            f'Weight: {msg.weight}kg | Status: [{msg.status}]'
+        )
 
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = SubscriberNode()
-
     rclpy.spin(node)
-
     node.destroy_node()
     rclpy.shutdown()
 
