@@ -242,13 +242,12 @@ ROS 2 Fundamentals
     ☑ Create Custom Message (.msg) interface package
     ☑ Implement Request-Response Gripper Services (.srv)
     ☑ Implement ROS 2 Actions (Closed-loop trajectory feedback pipeline)
+    ☑ Implement ROS 2 Parameters (Dynamic tuning of velocity bounds & weights)
+    ☑ Launch file improvements (Automated central config mapping via share directory)
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
-
-    ☐ ROS 2 Parameters (Dynamic tuning of velocity bounds & weights)
-    ☐ Launch file improvements
     ☐ TF2
     ☐ URDF
     ☐ Gazebo
