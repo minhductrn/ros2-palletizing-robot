@@ -10,25 +10,30 @@ from my_robot_interfaces.action import PalletizeBox
 class SubscriberNode(Node):
 
     def __init__(self):
+        # Initialize Node with parameters capabilities
         super().__init__('my_sub_node')
 
         self.robot_busy = False
-        self.system_initialized = False  # Cờ kiểm tra kết nối hệ thống
+        self.system_initialized = False  # Distributed handshake flag
 
         # ==================== PARAMETER DECLARATIONS ====================
+        # Declare local baseline fallbacks before Launch mapping applies
         self.declare_parameter('max_weight_capacity', 10.0)
         self.declare_parameter('operation_mode', 'AUTO')
-        self.get_logger().info('📋 Parameters initialized. Default max weight threshold: 10.0kg')
+
+        # Read active configurations out to verify file layout overrides
+        max_weight = self.get_parameter('max_weight_capacity').get_parameter_value().double_value
+        self.get_logger().info(f'📋 Parameters initialized. Active max weight threshold: {max_weight}kg')
         # ================================================================
 
-        # 1. Initialize Clients (KHÔNG DÙNG VÒNG LẶP WHILE CHẶN LUỒNG)
+        # 1. Initialize Communication Handlers
         self.gripper_client = self.create_client(SetGripperStatus, 'set_gripper_status')
         self.action_client = ActionClient(self, PalletizeBox, 'palletize_box')
 
-        # 2. Tạo một Timer chạy mỗi 1 giây để kiểm tra kết nối ngầm cho đến khi kết nối thành công
+        # 2. Non-blocking checking timer loop running every 1.0 seconds
         self.connection_timer = self.create_timer(1.0, self.check_system_connections)
 
-        # 3. Initialize Topic Subscriber
+        # 3. Initialize Industrial Topic Subscriber
         self.subscription = self.create_subscription(
             BoxInfo,
             'box_chatter',
@@ -42,18 +47,16 @@ class SubscriberNode(Node):
             self.get_logger().info('⏳ Waiting for Gripper Service Server to come online...')
             return
 
-        # SỬA DÒNG NÀY: Sử dụng wait_for_server với timeout bằng 0 để kiểm tra trạng thái bất đồng bộ
         if not self.action_client.wait_for_server(timeout_sec=0.0):
             self.get_logger().info('⏳ Waiting for Palletize Action Server to come online...')
             return
 
-        # Once both distributed ends are safely registered
+        # Once both distributed endpoints are verified active
         self.get_logger().info('⚙️ SYSTEM READY: Distributed automation loop connected successfully.')
         self.system_initialized = True
-        self.connection_timer.cancel()  # Terminate checking timer loop to release thread resources
+        self.connection_timer.cancel()  # Release memory resources by stopping checking loop
 
     def listener_callback(self, msg):
-        # Nếu hệ thống chưa kết nối xong với các server khác hoặc robot đang bận, bỏ qua dữ liệu
         if not self.system_initialized or self.robot_busy:
             return
 
@@ -65,10 +68,8 @@ class SubscriberNode(Node):
             f'[Profile -> Mode: {op_mode}, Max Cap: {max_weight}kg]'
         )
 
-        # Dynamic Parameters Safety Filter
-                # Dynamic Parameters Safety Filter
+        # Dynamic Parameters Safety Interlock Gate
         if msg.weight > max_weight:
-            # CHANGED: .warn() is now strictly .warning() in newer ROS 2 editions
             self.get_logger().warning(
                 f'⚠️ OVERLOAD DETECTED: Box #{msg.box_id} ({msg.weight}kg) exceeds '
                 f'safety threshold ({max_weight}kg). Request denied!'

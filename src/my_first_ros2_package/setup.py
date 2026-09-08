@@ -12,6 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # THÊM DÒNG DƯỚI ĐÂY ĐỂ ĐƯA FILE LAUNCH VÀO HỆ THỐNG
         ('share/' + package_name + '/launch', ['launch/my_nodes_launch.py']),
+        ('share/' + package_name + '/config', ['config/params.yaml']),
     ],
     package_data={'': ['py.typed']},
     install_requires=['setuptools'],

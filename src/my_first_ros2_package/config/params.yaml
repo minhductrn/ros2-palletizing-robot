@@ -1,0 +1,9 @@
+my_sub_node:
+  ros__parameters:
+    max_weight_capacity: 15.0
+    operation_mode: "AUTO"
+
+/**:
+  ros__parameters:
+    max_weight_capacity: 15.0
+    operation_mode: "AUTO"
