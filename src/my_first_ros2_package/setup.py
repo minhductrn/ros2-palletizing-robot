@@ -31,6 +31,7 @@ setup(
             'publisher_node = my_first_ros2_package.publisher_node:main',
             'subscriber_node = my_first_ros2_package.subscriber_node:main',
             'gripper_service_node = my_first_ros2_package.gripper_service_node:main',
+            'palletize_action_server = my_first_ros2_package.palletize_action_server:main',
         ],
     },
 )

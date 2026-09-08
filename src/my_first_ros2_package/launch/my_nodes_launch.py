@@ -11,7 +11,7 @@ def generate_launch_description():
             name='my_pub_node',
             output='screen'
         ),
-        # Node 2: Nhận và xử lý dữ liệu thùng hàng (Topic Subscriber)
+        # Node 2: Nhận tọa độ từ topic và tự động kích hoạt Action (Topic Subscriber + Action Client)
         Node(
             package='my_first_ros2_package',
             executable='subscriber_node',
@@ -23,6 +23,13 @@ def generate_launch_description():
             package='my_first_ros2_package',
             executable='gripper_service_node',
             name='my_gripper_srv_node',
+            output='screen'
+        ),
+        # Node 4: Mô phỏng hành trình dịch chuyển quỹ đạo robot (Action Server)
+        Node(
+            package='my_first_ros2_package',
+            executable='palletize_action_server',
+            name='my_action_server_node',
             output='screen'
         )
     ])
