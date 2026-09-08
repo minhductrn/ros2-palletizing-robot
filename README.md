@@ -106,7 +106,33 @@ Integrated **Topics**, **Services**, and **Actions** into a single fully-automat
 *   **`my_sub_node`**: Acts as the central pipeline controller. When a box has a status of `In Queue`, it locks the system cflags, triggers the **Service Client** to engage the gripper, and kicks off the **Action Client** to orchestrate path-planning telemetry.
 *   **`my_gripper_srv_node`**: Operates as a Service Server controlling vacuum suction keps and responds instantly to activation requests.
 *   **`my_action_server_node`**: Functions as an Action Server, executing the sequential kinematic progression (`Picking` ➔ `Moving to pallet` ➔ `Placing` ➔ `Returning`) and feeding back active step milestones.
-![alt text](image.png)
+
+### 🔄 Sequential Automation Loop Workflow
+
+```text
+       [ my_pub_node ]
+              │
+              │  (Topic: /box_chatter)
+              ▼  Publishes: Box #ID [Status: In Queue]
+       [ my_sub_node ] (Central Controller)
+              │
+              ├─► [Step 1: SERVICE CALL] ──► [ gripper_service_node ] (Suction ON)
+              │   ▲ Wait for Response: "Box secured" ◄────┘
+              │
+              ├─► [Step 2: ACTION GOAL] ───► [ palletize_action_server ] (Robot Motion)
+              │   ▲ Track Progress Feedback (10% ➔ 90%) ◄─┘
+              │   │
+              │   ▼ (On Goal Achieved: 100% Progress)
+              │
+              └─► [Step 3: SERVICE CALL] ──► [ gripper_service_node ] (Suction OFF)
+                  ▲ Wait for Response: "Box released" ◄───┘
+                  │
+                  ▼ (System State Reset: robot_busy = False)
+         [ READY FOR NEXT CYCLE ]
+```
+
+![Sequential Automation Loop](ros2-sequential-automation-loop.png)
+
 
 6. ROS 2 Communication Graph
 
