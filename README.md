@@ -22,8 +22,8 @@ Workspace
 
 ROS 2 Packages
 
-1. **`my_robot_interfaces`**: An `ament_cmake` package dedicated to compiling custom ROS 2 messages, services, and actions.
-2. **`my_first_ros2_package`**: An `ament_python` package containing execution scripts for our synchronized simulation nodes.
+1. **`my_robot_interfaces`**: An `**ament_cmake**` package dedicated to compiling custom ROS 2 messages, services, and actions.
+2. **`my_first_ros2_package`**: An `**ament_python**` package containing execution scripts for our synchronized simulation nodes.
 
 Current package structure:
 
@@ -34,6 +34,8 @@ Current package structure:
     │   │   │   └── BoxInfo.msg
     │   │   ├── srv/
     │   │   │   └── SetGripperStatus.srv
+    │   │   ├── action/
+    │   │   │   └── PalletizeBox.action
     │   │   ├── CMakeLists.txt
     │   │   └── package.xml
     │   │
@@ -43,7 +45,8 @@ Current package structure:
     │       │   ├── hello_node.py
     │       │   ├── publisher_node.py
     │       │   ├── subscriber_node.py
-    │       │   └── gripper_service_node.py
+    │       │   ├── gripper_service_node.py
+    │       │   └── palletize_action_server.py
     │       │
     │       ├── launch/
     │       │   └── my_nodes_launch.py
@@ -83,22 +86,36 @@ bool success       # Response: Execution outcome affirmation
 string message     # Response: Status log breakdown text
 ```
 
-4. Autonomous Event-Driven Control Pipeline
+4. Custom Action Interface (`PalletizeBox.action`)
 
-Integrated both **Topics** and **Services** into a single closed-loop automated logistics design:
-*   **`my_pub_node`**: Generates real-time randomized box geometry configurations and streams them over the `/box_chatter` topic.
-*   **`my_sub_node`**: Evaluates incoming telemetry fields. If a box has a status of `In Queue`, it instantly acts as a **Service Client**, auto-triggering an asynchronous call to the gripper controller.
-*   **`my_gripper_srv_node`**: Processes the incoming state-change requests to engage/disengage vacuum suction and sends back execution receipts.
+Built a high-level asynchronous long-running task to manage path-planning cycles with real-time state feedback feedback tracking:
+```text
+int32 box_id               # Goal: Identifier target of the box
+---
+bool success               # Result: Cycle accomplishment validation
+string message             # Result: Complete process summary status
+---
+float32 progress           # Feedback: Completion status scale (0% - 100%)
+string current_step        # Feedback: Current execution phase ('Picking', 'Moving to pallet', etc.)
+```
 
-5. ROS 2 Communication Graph
+5. Autonomous Closed-Loop Event-Driven Pipeline
+
+Integrated **Topics**, **Services**, and **Actions** into a single fully-automated logistics design containing **4 concurrent processes**:
+*   **`my_pub_node`**: Spawns real-time randomized box geometry configurations and streams them over the `/box_chatter` topic.
+*   **`my_sub_node`**: Acts as the central pipeline controller. When a box has a status of `In Queue`, it locks the system cflags, triggers the **Service Client** to engage the gripper, and kicks off the **Action Client** to orchestrate path-planning telemetry.
+*   **`my_gripper_srv_node`**: Operates as a Service Server controlling vacuum suction keps and responds instantly to activation requests.
+*   **`my_action_server_node`**: Functions as an Action Server, executing the sequential kinematic progression (`Picking` ➔ `Moving to pallet` ➔ `Placing` ➔ `Returning`) and feeding back active step milestones.
+
+6. ROS 2 Communication Graph
 
 The system communication pipeline verified and visualised using **`rqt_graph`**:
 
 ![ROS 2 Network Graph](rosgraph.png)
 
-6. Automated Multi-Node Launch Execution
+7. Automated Orchestrated Launch Control
 
-Utilized a centralized `my_nodes_launch.py` script to orchestrate and bring up the complete 3-node lifecycle concurrently inside a single shell:
+Utilized a centralized `my_nodes_launch.py` script to orchestrate and safely map the lifecycles of all 4 nodes simultaneously within a single terminal environment:
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
@@ -116,7 +133,7 @@ Source workspace
 
     source install/setup.bash
 
-Start the complete autonomous system
+Start the complete autonomous assembly line
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
@@ -124,10 +141,11 @@ Inspect custom interfaces
 
     ros2 interface show my_robot_interfaces/msg/BoxInfo
     ros2 interface show my_robot_interfaces/srv/SetGripperStatus
+    ros2 interface show my_robot_interfaces/action/PalletizeBox
 
-Trigger gripper manually
+Trigger action manually from CLI
 
-    ros2 service call /set_gripper_status my_robot_interfaces/srv/SetGripperStatus "{activate: true}"
+    ros2 action send_goal /palletize_box my_robot_interfaces/action/PalletizeBox "{box_id: 42}" --feedback
 
 Learning Roadmap
 
@@ -147,7 +165,7 @@ My current learning path:
         ↓
         Services (.srv)
         ↓
-        Actions (.action)
+        Actions (.action)  [COMPLETED]
         ↓
         Parameters
         ↓
@@ -196,13 +214,13 @@ ROS 2 Fundamentals
     ☑ Create launch file
     ☑ Create Custom Message (.msg) interface package
     ☑ Implement Request-Response Gripper Services (.srv)
+    ☑ Implement ROS 2 Actions (Closed-loop trajectory feedback pipeline)
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
 
-    ☐ ROS 2 Actions (Trajectory and path planning execution tracking)
-    ☐ Parameters
+    ☐ ROS 2 Parameters (Dynamic tuning of velocity bounds & weights)
     ☐ Launch file improvements
     ☐ TF2
     ☐ URDF
