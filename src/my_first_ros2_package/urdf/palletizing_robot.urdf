@@ -1,0 +1,103 @@
+<?xml version="1.0"?>
+<robot name="palletizing_robot">
+
+  <!-- LINK 1: Robot Base Fixed on the Shop Floor -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.1" radius="0.3"/>
+      </geometry>
+      <material name="dark_grey">
+        <color rgba="0.2 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- JOINT 1: Rotational Torso (Yaw Motion Axis) -->
+  <joint name="base_to_torso" type="continuous">
+    <parent link="base_link"/>
+    <child link="torso_link"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+
+  <!-- LINK 2: Robot Main Torso Column -->
+  <link name="torso_link">
+    <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <cylinder length="0.5" radius="0.15"/>
+      </geometry>
+      <material name="orange">
+        <color rgba="1.0 0.5 0.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- JOINT 2: Revolute Shoulder (Pitch Motion Axis) -->
+  <joint name="torso_to_arm" type="revolute">
+    <parent link="torso_link"/>
+    <child link="arm_link"/>
+    <!-- Anchor at the top edge of the torso column (Z=0.5m) -->
+    <origin xyz="0 0 0.5" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="10.0" velocity="1.0"/>
+  </joint>
+
+  <!-- LINK 3: Primary Manipulator Arm Component -->
+  <link name="arm_link">
+    <visual>
+      <!-- Offset the visual origin by 0.4m upward to place its bottom edge exactly on the pivot joint -->
+      <origin xyz="0 0 0.4" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.1 0.8"/>
+      </geometry>
+      <material name="silver">
+        <color rgba="0.8 0.8 0.8 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- ==================== GRIPPER END-EFFECTOR ADDITION ==================== -->
+  <!-- JOINT 4: Fixed Gripper Attachment Joint (Positioned at the tip of the 0.8m arm) -->
+  <joint name="arm_to_gripper" type="fixed">
+    <parent link="arm_link"/>
+    <child link="gripper_link"/>
+    <origin xyz="0 0 0.8" rpy="0 0 0"/>
+  </joint>
+
+  <!-- LINK 5: Physical Pneumatic Suction Gripper Plate -->
+  <link name="gripper_link">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.2 0.2 0.05"/> <!-- Flat square end-effector shape -->
+      </geometry>
+      <material name="gold">
+        <color rgba="0.8 0.6 0.0 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- ==================== CONVEYOR INFRASTRUCTURE ==================== -->
+  <!-- JOINT 3: Fixed Foundation Link to Mount Conveyor on the System Floor -->
+  <joint name="base_to_conveyor" type="fixed">
+    <parent link="base_link"/>
+    <child link="conveyor_link"/>
+    <origin xyz="0.8 0.0 0.4" rpy="0 0 0"/> <!-- Placed 0.8m ahead, elevated at 0.4m -->
+  </joint>
+
+  <!-- LINK 4: Physical Industrial Blue Conveyor Structure -->
+  <link name="conveyor_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 1.5 0.05"/> <!-- 0.4m Width, 1.5m Length, 0.05m Bed thickness -->
+      </geometry>
+      <material name="blue">
+        <color rgba="0.0 0.3 0.8 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+</robot>
