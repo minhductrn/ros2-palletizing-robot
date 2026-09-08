@@ -51,6 +51,12 @@ Current package structure:
     │       ├── launch/
     │       │   └── my_nodes_launch.py
     │       │
+    │       ├── config/
+    │       │   └── params.yaml
+    │       │
+    │       ├── urdf/
+    │       │   └── palletizing_robot.urdf
+    │       │
     │       ├── package.xml
     │       ├── setup.py
     │       └── setup.cfg
@@ -88,7 +94,7 @@ string message     # Response: Status log breakdown text
 
 4. Custom Action Interface (`PalletizeBox.action`)
 
-Built a high-level asynchronous long-running task to manage path-planning cycles with real-time state feedback feedback tracking:
+Built a high-level asynchronous long-running task to manage path-planning cycles with real-time state feedback tracking:
 ```text
 int32 box_id               # Goal: Identifier target of the box
 ---
@@ -103,8 +109,8 @@ string current_step        # Feedback: Current execution phase ('Picking', 'Movi
 
 Integrated **Topics**, **Services**, and **Actions** into a single fully-automated logistics design containing **4 concurrent processes**:
 *   **`my_pub_node`**: Spawns real-time randomized box geometry configurations and streams them over the `/box_chatter` topic.
-*   **`my_sub_node`**: Acts as the central pipeline controller. When a box has a status of `In Queue`, it locks the system cflags, triggers the **Service Client** to engage the gripper, and kicks off the **Action Client** to orchestrate path-planning telemetry.
-*   **`my_gripper_srv_node`**: Operates as a Service Server controlling vacuum suction keps and responds instantly to activation requests.
+*   **`my_sub_node`**: Acts as the central pipeline controller. When a box has a status of `In Queue`, it locks system execution flags, triggers the **Service Client** to engage the gripper, and kicks off the **Action Client** to orchestrate path-planning telemetry.
+*   **`my_gripper_srv_node`**: Operates as a Service Server controlling vacuum suction cups and responds instantly to activation requests.
 *   **`my_action_server_node`**: Functions as an Action Server, executing the sequential kinematic progression (`Picking` ➔ `Moving to pallet` ➔ `Placing` ➔ `Returning`) and feeding back active step milestones.
 
 ### 🔄 Sequential Automation Loop Workflow
@@ -133,18 +139,19 @@ Integrated **Topics**, **Services**, and **Actions** into a single fully-automat
 
 ![Sequential Automation Loop](ros2-sequential-automation-loop.png)
 
-
 6. ROS 2 Communication Graph
 
 The system communication pipeline verified and visualised using **`rqt_graph`**:
 
 ![ROS 2 Network Graph](rosgraph.png)
 
-7. Automated Orchestrated Launch Control
+7. Automated Orchestrated Launch Execution & Central Parameters
 
-Utilized a centralized `my_nodes_launch.py` script to orchestrate and safely map the lifecycles of all 4 nodes simultaneously within a single terminal environment:
+Utilized a centralized `my_nodes_launch.py` script to orchestrate the execution lifecycles of all active system nodes concurrently while feeding custom operational thresholds (`max_weight_capacity` and `operation_mode`) cleanly via an external `params.yaml` configuration profile.
 
-    ros2 launch my_first_ros2_package my_nodes_launch.py
+8. URDF Linkage Modeling & RViz2 3D Graphical Visualization
+
+Designed a custom unified kinematic robot tree definition file (`palletizing_robot.urdf`) containing interlocking structural links (`base_link`, `torso_link`, `arm_link`) and operational joints (`continuous` and `revolute`). Integrated real-time visualization nodes (`robot_state_publisher`, `joint_state_publisher_gui`) alongside **RViz2** inside the orchestrating launch sequence to simulate arm configurations graphically on a 3D interface viewport.
 
 Useful Commands
 Source ROS 2
@@ -160,7 +167,7 @@ Source workspace
 
     source install/setup.bash
 
-Start the complete autonomous assembly line
+Start the complete autonomous assembly line & 3D simulator
 
     ros2 launch my_first_ros2_package my_nodes_launch.py
 
@@ -170,9 +177,10 @@ Inspect custom interfaces
     ros2 interface show my_robot_interfaces/srv/SetGripperStatus
     ros2 interface show my_robot_interfaces/action/PalletizeBox
 
-Trigger action manually from CLI
+Manipulate Parameters dynamically at runtime
 
-    ros2 action send_goal /palletize_box my_robot_interfaces/action/PalletizeBox "{box_id: 42}" --feedback
+    ros2 param get /my_sub_node max_weight_capacity
+    ros2 param set /my_sub_node max_weight_capacity 15.0
 
 Learning Roadmap
 
@@ -192,7 +200,7 @@ My current learning path:
         ↓
         Services (.srv)
         ↓
-        Actions (.action)  [COMPLETED]
+        Actions (.action)
         ↓
         Parameters
         ↓
@@ -244,16 +252,18 @@ ROS 2 Fundamentals
     ☑ Implement ROS 2 Actions (Closed-loop trajectory feedback pipeline)
     ☑ Implement ROS 2 Parameters (Dynamic tuning of velocity bounds & weights)
     ☑ Launch file improvements (Automated central config mapping via share directory)
+    ☑ Implement URDF Linkage Modeling (3-Axis physical kinematics tree design)
+    ☑ Configure RViz2 3D Graphical Visualization Environment
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
-    ☐ TF2
-    ☐ URDF
-    ☐ Gazebo
-    ☐ ros2_control
-    ☐ MoveIt 2
-    ☐ Computer vision
-    ☐ Palletizing robot simulation
+
+    ☐ TF2 (Coordinate transformations handling for moving parts)
+    ☐ Gazebo Simulation (Adding physics, collisions, and gravity environments)
+    ☐ ros2_control (Hardware resource abstraction layers connection)
+    ☐ MoveIt 2 (Advanced collision-free path planning & industrial manipulation)
+    ☐ Computer Vision (OpenCV/AI-driven box scanning pose estimation)
+    ☐ Palletizing Robot Simulation
 
 Learning by building — Python → ROS 2 → Robotics.
