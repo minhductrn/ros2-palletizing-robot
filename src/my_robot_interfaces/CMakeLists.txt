@@ -12,7 +12,10 @@ find_package(rosidl_default_generators REQUIRED)
 # Khai báo file msg cần biên dịch
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/BoxInfo.msg"
+  "srv/SetGripperStatus.srv"
+  "action/PalletizeBox.action"
 )
 
 ament_package()
+
 

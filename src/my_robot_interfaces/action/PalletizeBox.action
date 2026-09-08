@@ -1,0 +1,7 @@
+int32 box_id
+---
+bool success
+string message
+---
+float32 progress
+string current_step
