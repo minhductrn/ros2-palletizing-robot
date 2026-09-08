@@ -254,12 +254,12 @@ ROS 2 Fundamentals
     ☑ Launch file improvements (Automated central config mapping via share directory)
     ☑ Implement URDF Linkage Modeling (3-Axis physical kinematics tree design)
     ☑ Configure RViz2 3D Graphical Visualization Environment
+    ☑ TF2 (Coordinate transformations handling for moving parts)
     ☑ Build and run ROS 2 package
     ☑ Push project to GitHub
 
 Next
 
-    ☐ TF2 (Coordinate transformations handling for moving parts)
     ☐ Gazebo Simulation (Adding physics, collisions, and gravity environments)
     ☐ ros2_control (Hardware resource abstraction layers connection)
     ☐ MoveIt 2 (Advanced collision-free path planning & industrial manipulation)
