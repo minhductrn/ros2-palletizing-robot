@@ -6,9 +6,10 @@ from rclpy.action import CancelResponse, GoalResponse
 from rclpy.action import ActionServer
 from my_robot_interfaces.action import PalletizeBox
 
-# IMPORT THƯ VIỆN PHÁT TRẠNG THÁI KHỚP ROBOT MỚI
+# IMPORT CENTRAL GEOMETRY, SENSOR, AND MARKER UTILITIES
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import TransformStamped
+from visualization_msgs.msg import Marker
 from tf2_ros import TransformBroadcaster
 
 
@@ -17,11 +18,12 @@ class PalletizeActionServer(Node):
     def __init__(self):
         super().__init__('my_action_server_node')
         
-        # 1. Khởi tạo bộ phát tọa độ TF2 và Topic phát trạng thái khớp vật lý
         self.tf_broadcaster = TransformBroadcaster(self)
         self.joint_pub = self.create_publisher(JointState, 'joint_states', 10)
+        
+        # Initialize marker re-publisher pipeline inside action thread limits
+        self.marker_pub = self.create_publisher(Marker, 'visualization_marker', 10)
 
-        # 2. Khởi tạo Action Server
         self._action_server = ActionServer(
             self,
             PalletizeBox,
@@ -30,7 +32,7 @@ class PalletizeActionServer(Node):
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback
         )
-        self.get_logger().info('🤖 Kinematics Action Server with Joint State Telemetry online.')
+        self.get_logger().info('🤖 Kinematics Action Server with Marker Synchronization online.')
 
     def goal_callback(self, goal_request):
         return GoalResponse.ACCEPT
@@ -39,46 +41,67 @@ class PalletizeActionServer(Node):
         return CancelResponse.ACCEPT
 
     def publish_robot_joints(self, torso_angle, arm_angle):
-        """Hàm phát góc xoay thực tế của các khớp robot lên mô phỏng 3D"""
         joint_state = JointState()
-        # ĐẢM BẢO CÓ DÒNG THỜI GIAN NÀY ĐỂ RVIZ2 KHÔNG BỎ QUA GÓI TIN
         joint_state.header.stamp = self.get_clock().now().to_msg()
         joint_state.name = ['base_to_torso', 'torso_to_arm']
         joint_state.position = [float(torso_angle), float(arm_angle)]
         self.joint_pub.publish(joint_state)
 
-
     def broadcast_snapped_box(self, parent_frame):
-        """Hàm phát tọa độ dịch chuyển và snap (dính chặt) của chiếc hộp"""
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = parent_frame
         t.child_frame_id = 'box_frame'
 
         if parent_frame == 'arm_link':
-            # Khi gắp: Hộp dính chặt vào đầu kẹp gắp (cách khớp cánh tay 0.8m)
+            # Khối hộp đỏ cao 0.2m, đầu kẹp cao 0.8m -> Đặt Z = 0.7 để hộp nằm khít ngay dưới tấm gắp gold
             t.transform.translation.x = 0.0
             t.transform.translation.y = 0.0
-            t.transform.translation.z = 0.8
+            t.transform.translation.z = 0.7  
         else:
-            # Khi đặt: Hộp nằm cố định trên mặt pallet mục tiêu
-            t.transform.translation.x = -0.5
-            t.transform.translation.y = -0.5
+            # Dropped storage array targets: Nằm yên vị tại trung tâm Pallet mục tiêu sau khi nhả kẹp
+            t.transform.translation.x = 0.0
+            t.transform.translation.y = -0.8  # Đặt tại vị trí Pallet đối xứng qua trục xoay của robot
             t.transform.translation.z = 0.1
 
         t.transform.rotation.w = 1.0
         self.tf_broadcaster.sendTransform(t)
 
+        # Refresh the active rendering dimensions of the visual block mesh frame link
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = 'box_frame'
+        marker.id = 0
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.scale.x = 0.2
+        marker.scale.y = 0.2
+        marker.scale.z = 0.2
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        
+        # Explicitly initialize separate components inside geometry Pose 
+        marker.pose.position.x = 0.0
+        marker.pose.position.y = 0.0
+        marker.pose.position.z = 0.0
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+        
+        self.marker_pub.publish(marker)
+
     def execute_callback(self, goal_handle):
         box_id = goal_handle.request.box_id
         feedback_msg = PalletizeBox.Feedback()
         
-        # Cấu hình chu trình: (Tiến độ, Tên bước, Góc khớp thân, Góc khớp tay)
         steps = [
-            (10, 'Picking', 0.0, 0.5),           # Hạ cánh tay xuống băng tải gắp hàng
-            (40, 'Moving to pallet', 1.57, -0.2), # Xoay thân 90 độ và nâng cánh tay lên
-            (70, 'Placing', 1.57, 0.6),           # Hạ cánh tay xuống đặt hàng vào pallet
-            (90, 'Returning', 0.0, 0.0),          # Thu tay về vị trí trung gian mặc định
+            (10, 'Picking', 0.0, -1.2),           
+            (40, 'Moving to pallet', 1.57, 0.2),  
+            (70, 'Placing', 1.57, -0.9),          
+            (90, 'Returning', 0.0, 0.0),
             (100, 'Complete', 0.0, 0.0)
         ]
 
@@ -88,13 +111,14 @@ class PalletizeActionServer(Node):
             goal_handle.publish_feedback(feedback_msg)
             self.get_logger().info(f'Box {box_id}: {progress}% - {step}')
 
-            # Ép cập nhật hình thái chuyển động 3D lên màn hình RViz2
             self.publish_robot_joints(torso_angle, arm_angle)
 
-            # Điều khiển logic dính hộp TF2
-            if step in ['Picking', 'Moving to pallet']:
+            # SỬA ĐỔI LOGIC PHÁT CHUẨN XÁC:
+            # Hộp đỏ phải bám theo arm_link xuyên suốt cả quá trình hạ tay xuống đặt hàng (Placing)
+            if step in ['Picking', 'Moving to pallet', 'Placing']:
                 self.broadcast_snapped_box('arm_link')
-            elif step == 'Placing':
+            # Chỉ buông nhả hộp sang hệ tọa độ sàn nhà (base_link) khi robot bắt đầu rút tay về (Returning/Complete)
+            elif step in ['Returning', 'Complete']:
                 self.broadcast_snapped_box('base_link')
 
             time.sleep(1.0)
@@ -102,7 +126,7 @@ class PalletizeActionServer(Node):
         goal_handle.succeed()
         result = PalletizeBox.Result()
         result.success = True
-        result.message = f'Box {box_id} completed.'
+        result.message = f'Box {box_id} complete.'
         return result
 
 
