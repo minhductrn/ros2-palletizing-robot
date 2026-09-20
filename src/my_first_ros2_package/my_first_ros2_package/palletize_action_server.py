@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-import time
-import rclpy
-from rclpy.node import Node
-from rclpy.action import CancelResponse, GoalResponse
-from rclpy.action import ActionServer
-from my_robot_interfaces.action import PalletizeBox
 
-# IMPORT CENTRAL GEOMETRY, SENSOR, AND MARKER UTILITIES
-from sensor_msgs.msg import JointState
-from geometry_msgs.msg import TransformStamped
-from visualization_msgs.msg import Marker
-from tf2_ros import TransformBroadcaster
+import rclpy
+
+from rclpy.node import Node
+from rclpy.action import (
+    ActionClient,
+    ActionServer,
+    CancelResponse,
+    GoalResponse,
+)
+
+from control_msgs.action import FollowJointTrajectory
+from trajectory_msgs.msg import JointTrajectoryPoint
+
+from my_robot_interfaces.action import PalletizeBox
 
 
 class PalletizeActionServer(Node):
 
     def __init__(self):
         super().__init__('my_action_server_node')
-        
-        self.tf_broadcaster = TransformBroadcaster(self)
-        self.joint_pub = self.create_publisher(JointState, 'joint_states', 10)
-        
-        # Initialize marker re-publisher pipeline inside action thread limits
-        self.marker_pub = self.create_publisher(Marker, 'visualization_marker', 10)
 
+        # Action client for the real ros2_control trajectory controller
+        self.arm_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            '/arm_controller/follow_joint_trajectory'
+        )
+
+        # Custom palletizing action server
         self._action_server = ActionServer(
             self,
             PalletizeBox,
@@ -32,110 +37,187 @@ class PalletizeActionServer(Node):
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback
         )
-        self.get_logger().info('🤖 Kinematics Action Server with Marker Synchronization online.')
+
+        self.get_logger().info(
+            'Palletize Action Server connected to ros2_control.'
+        )
 
     def goal_callback(self, goal_request):
+        self.get_logger().info(
+            f'Received palletize request for box {goal_request.box_id}'
+        )
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, goal_handle):
+        self.get_logger().info('Cancel request received.')
         return CancelResponse.ACCEPT
 
-    def publish_robot_joints(self, torso_angle, arm_angle):
-        joint_state = JointState()
-        joint_state.header.stamp = self.get_clock().now().to_msg()
-        joint_state.name = ['base_to_torso', 'torso_to_arm']
-        joint_state.position = [float(torso_angle), float(arm_angle)]
-        self.joint_pub.publish(joint_state)
+    async def move_robot(
+        self,
+        torso_angle,
+        arm_angle,
+        duration_sec=2
+    ):
+        """
+        Send a trajectory goal to the real JointTrajectoryController
+        and wait asynchronously for completion.
+        """
 
-    def broadcast_snapped_box(self, parent_frame):
-        t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = parent_frame
-        t.child_frame_id = 'box_frame'
+        if not self.arm_client.server_is_ready():
+            self.get_logger().error(
+                'arm_controller action server is not available.'
+            )
+            return False
 
-        if parent_frame == 'arm_link':
-            # Khối hộp đỏ cao 0.2m, đầu kẹp cao 0.8m -> Đặt Z = 0.7 để hộp nằm khít ngay dưới tấm gắp gold
-            t.transform.translation.x = 0.0
-            t.transform.translation.y = 0.0
-            t.transform.translation.z = 0.7  
-        else:
-            # Dropped storage array targets: Nằm yên vị tại trung tâm Pallet mục tiêu sau khi nhả kẹp
-            t.transform.translation.x = 0.0
-            t.transform.translation.y = -0.8  # Đặt tại vị trí Pallet đối xứng qua trục xoay của robot
-            t.transform.translation.z = 0.1
+        goal_msg = FollowJointTrajectory.Goal()
 
-        t.transform.rotation.w = 1.0
-        self.tf_broadcaster.sendTransform(t)
+        goal_msg.trajectory.joint_names = [
+            'base_to_torso',
+            'torso_to_arm',
+        ]
 
-        # Refresh the active rendering dimensions of the visual block mesh frame link
-        marker = Marker()
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.header.frame_id = 'box_frame'
-        marker.id = 0
-        marker.type = Marker.CUBE
-        marker.action = Marker.ADD
-        marker.scale.x = 0.2
-        marker.scale.y = 0.2
-        marker.scale.z = 0.2
-        marker.color.r = 1.0
-        marker.color.g = 0.0
-        marker.color.b = 0.0
-        marker.color.a = 1.0
-        
-        # Explicitly initialize separate components inside geometry Pose 
-        marker.pose.position.x = 0.0
-        marker.pose.position.y = 0.0
-        marker.pose.position.z = 0.0
-        marker.pose.orientation.x = 0.0
-        marker.pose.orientation.y = 0.0
-        marker.pose.orientation.z = 0.0
-        marker.pose.orientation.w = 1.0
-        
-        self.marker_pub.publish(marker)
+        point = JointTrajectoryPoint()
 
-    def execute_callback(self, goal_handle):
+        point.positions = [
+            float(torso_angle),
+            float(arm_angle),
+        ]
+
+        point.time_from_start.sec = int(duration_sec)
+
+        goal_msg.trajectory.points = [point]
+
+        self.get_logger().info(
+            f'Moving robot -> '
+            f'torso={torso_angle:.2f}, '
+            f'arm={arm_angle:.2f}'
+        )
+
+        trajectory_goal_handle = await self.arm_client.send_goal_async(
+            goal_msg
+        )
+
+        if trajectory_goal_handle is None:
+            self.get_logger().error(
+                'Failed to receive trajectory goal response.'
+            )
+            return False
+
+        if not trajectory_goal_handle.accepted:
+            self.get_logger().error(
+                'Trajectory goal was rejected by arm_controller.'
+            )
+            return False
+
+        self.get_logger().info(
+            'Trajectory goal accepted by arm_controller.'
+        )
+
+        result_response = await trajectory_goal_handle.get_result_async()
+
+        if result_response is None:
+            self.get_logger().error(
+                'No trajectory result received.'
+            )
+            return False
+
+        if result_response.result.error_code != 0:
+            self.get_logger().error(
+                'Trajectory failed: '
+                f'{result_response.result.error_string}'
+            )
+            return False
+
+        self.get_logger().info(
+            'Trajectory completed successfully.'
+        )
+
+        return True
+
+    async def execute_callback(self, goal_handle):
+
         box_id = goal_handle.request.box_id
+
         feedback_msg = PalletizeBox.Feedback()
-        
+
+        # progress, step, base rotation, arm angle
         steps = [
-            (10, 'Picking', 0.0, -1.2),           
-            (40, 'Moving to pallet', 1.57, 0.2),  
-            (70, 'Placing', 1.57, -0.9),          
+            (10, 'Picking', 0.0, -1.2),
+            (40, 'Moving to pallet', 1.57, 0.2),
+            (70, 'Placing', 1.57, -0.9),
             (90, 'Returning', 0.0, 0.0),
-            (100, 'Complete', 0.0, 0.0)
+            (100, 'Complete', 0.0, 0.0),
         ]
 
         for progress, step, torso_angle, arm_angle in steps:
+
+            if goal_handle.is_cancel_requested:
+
+                goal_handle.canceled()
+
+                result = PalletizeBox.Result()
+                result.success = False
+                result.message = (
+                    f'Box {box_id} palletizing canceled.'
+                )
+
+                return result
+
             feedback_msg.progress = float(progress)
             feedback_msg.current_step = step
+
             goal_handle.publish_feedback(feedback_msg)
-            self.get_logger().info(f'Box {box_id}: {progress}% - {step}')
 
-            self.publish_robot_joints(torso_angle, arm_angle)
+            self.get_logger().info(
+                f'Box {box_id}: {progress}% - {step}'
+            )
 
-            # SỬA ĐỔI LOGIC PHÁT CHUẨN XÁC:
-            # Hộp đỏ phải bám theo arm_link xuyên suốt cả quá trình hạ tay xuống đặt hàng (Placing)
-            if step in ['Picking', 'Moving to pallet', 'Placing']:
-                self.broadcast_snapped_box('arm_link')
-            # Chỉ buông nhả hộp sang hệ tọa độ sàn nhà (base_link) khi robot bắt đầu rút tay về (Returning/Complete)
-            elif step in ['Returning', 'Complete']:
-                self.broadcast_snapped_box('base_link')
+            success = await self.move_robot(
+                torso_angle,
+                arm_angle,
+                duration_sec=2
+            )
 
-            time.sleep(1.0)
+            if not success:
+
+                goal_handle.abort()
+
+                result = PalletizeBox.Result()
+                result.success = False
+                result.message = (
+                    f'Box {box_id} failed during step: {step}'
+                )
+
+                return result
 
         goal_handle.succeed()
+
         result = PalletizeBox.Result()
         result.success = True
         result.message = f'Box {box_id} complete.'
+
+        self.get_logger().info(
+            f'Box {box_id}: palletizing sequence complete.'
+        )
+
         return result
 
 
 def main(args=None):
+
     rclpy.init(args=args)
+
     node = PalletizeActionServer()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        rclpy.spin(node)
+
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
