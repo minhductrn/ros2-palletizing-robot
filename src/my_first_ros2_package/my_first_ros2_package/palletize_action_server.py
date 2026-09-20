@@ -14,6 +14,7 @@ from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 from my_robot_interfaces.action import PalletizeBox
+from my_robot_interfaces.srv import SetGripperStatus
 
 
 class PalletizeActionServer(Node):
@@ -21,14 +22,20 @@ class PalletizeActionServer(Node):
     def __init__(self):
         super().__init__('my_action_server_node')
 
-        # Action client for the real ros2_control trajectory controller
+        # Real robot trajectory controller
         self.arm_client = ActionClient(
             self,
             FollowJointTrajectory,
             '/arm_controller/follow_joint_trajectory'
         )
 
-        # Custom palletizing action server
+        # Gripper service client
+        self.gripper_client = self.create_client(
+            SetGripperStatus,
+            'set_gripper_status'
+        )
+
+        # High-level palletizing action
         self._action_server = ActionServer(
             self,
             PalletizeBox,
@@ -39,7 +46,8 @@ class PalletizeActionServer(Node):
         )
 
         self.get_logger().info(
-            'Palletize Action Server connected to ros2_control.'
+            'Palletize Action Server connected to '
+            'ros2_control and gripper service.'
         )
 
     def goal_callback(self, goal_request):
@@ -58,10 +66,7 @@ class PalletizeActionServer(Node):
         arm_angle,
         duration_sec=2
     ):
-        """
-        Send a trajectory goal to the real JointTrajectoryController
-        and wait asynchronously for completion.
-        """
+        """Send a trajectory to JointTrajectoryController."""
 
         if not self.arm_client.server_is_ready():
             self.get_logger().error(
@@ -105,13 +110,9 @@ class PalletizeActionServer(Node):
 
         if not trajectory_goal_handle.accepted:
             self.get_logger().error(
-                'Trajectory goal was rejected by arm_controller.'
+                'Trajectory goal rejected by arm_controller.'
             )
             return False
-
-        self.get_logger().info(
-            'Trajectory goal accepted by arm_controller.'
-        )
 
         result_response = await trajectory_goal_handle.get_result_async()
 
@@ -134,61 +135,163 @@ class PalletizeActionServer(Node):
 
         return True
 
+    async def set_gripper(self, activate):
+        """Turn the logical suction gripper ON or OFF."""
+
+        if not self.gripper_client.service_is_ready():
+            self.get_logger().error(
+                'Gripper service is not available.'
+            )
+            return False
+
+        request = SetGripperStatus.Request()
+        request.activate = activate
+
+        state = 'ON' if activate else 'OFF'
+
+        self.get_logger().info(
+            f'Requesting gripper {state}...'
+        )
+
+        response = await self.gripper_client.call_async(request)
+
+        if response is None:
+            self.get_logger().error(
+                f'No response received for gripper {state}.'
+            )
+            return False
+
+        if not response.success:
+            self.get_logger().error(
+                f'Gripper {state} failed: {response.message}'
+            )
+            return False
+
+        self.get_logger().info(
+            f'Gripper {state}: {response.message}'
+        )
+
+        return True
+
     async def execute_callback(self, goal_handle):
 
         box_id = goal_handle.request.box_id
-
         feedback_msg = PalletizeBox.Feedback()
 
-        # progress, step, base rotation, arm angle
-        steps = [
-            (10, 'Picking', 0.0, -1.2),
-            (40, 'Moving to pallet', 1.57, 0.2),
-            (70, 'Placing', 1.57, -0.9),
-            (90, 'Returning', 0.0, 0.0),
-            (100, 'Complete', 0.0, 0.0),
-        ]
+        # ---------------------------------------------------------
+        # STEP 1 — MOVE TO PICK
+        # ---------------------------------------------------------
+        feedback_msg.progress = 10.0
+        feedback_msg.current_step = 'Moving to pick'
+        goal_handle.publish_feedback(feedback_msg)
 
-        for progress, step, torso_angle, arm_angle in steps:
+        self.get_logger().info(
+            f'Box {box_id}: 10% - Moving to pick'
+        )
 
-            if goal_handle.is_cancel_requested:
-
-                goal_handle.canceled()
-
-                result = PalletizeBox.Result()
-                result.success = False
-                result.message = (
-                    f'Box {box_id} palletizing canceled.'
-                )
-
-                return result
-
-            feedback_msg.progress = float(progress)
-            feedback_msg.current_step = step
-
-            goal_handle.publish_feedback(feedback_msg)
-
-            self.get_logger().info(
-                f'Box {box_id}: {progress}% - {step}'
+        if not await self.move_robot(0.0, -1.2, 2):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'moving to pick'
             )
 
-            success = await self.move_robot(
-                torso_angle,
-                arm_angle,
-                duration_sec=2
+        # ---------------------------------------------------------
+        # STEP 2 — GRIP BOX
+        # ---------------------------------------------------------
+        feedback_msg.progress = 25.0
+        feedback_msg.current_step = 'Picking'
+        goal_handle.publish_feedback(feedback_msg)
+
+        self.get_logger().info(
+            f'Box {box_id}: 25% - Picking'
+        )
+
+        if not await self.set_gripper(True):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'gripper activation'
             )
 
-            if not success:
+        # ---------------------------------------------------------
+        # STEP 3 — MOVE TO PALLET
+        # ---------------------------------------------------------
+        feedback_msg.progress = 50.0
+        feedback_msg.current_step = 'Moving to pallet'
+        goal_handle.publish_feedback(feedback_msg)
 
-                goal_handle.abort()
+        self.get_logger().info(
+            f'Box {box_id}: 50% - Moving to pallet'
+        )
 
-                result = PalletizeBox.Result()
-                result.success = False
-                result.message = (
-                    f'Box {box_id} failed during step: {step}'
-                )
+        if not await self.move_robot(1.57, 0.2, 2):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'moving to pallet'
+            )
 
-                return result
+        # ---------------------------------------------------------
+        # STEP 4 — LOWER TO PLACE
+        # ---------------------------------------------------------
+        feedback_msg.progress = 70.0
+        feedback_msg.current_step = 'Placing'
+        goal_handle.publish_feedback(feedback_msg)
+
+        self.get_logger().info(
+            f'Box {box_id}: 70% - Placing'
+        )
+
+        if not await self.move_robot(1.57, -0.9, 2):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'placing'
+            )
+
+        # ---------------------------------------------------------
+        # STEP 5 — RELEASE BOX
+        # ---------------------------------------------------------
+        feedback_msg.progress = 80.0
+        feedback_msg.current_step = 'Releasing'
+        goal_handle.publish_feedback(feedback_msg)
+
+        self.get_logger().info(
+            f'Box {box_id}: 80% - Releasing'
+        )
+
+        if not await self.set_gripper(False):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'gripper release'
+            )
+
+        # ---------------------------------------------------------
+        # STEP 6 — RETURN HOME
+        # ---------------------------------------------------------
+        feedback_msg.progress = 90.0
+        feedback_msg.current_step = 'Returning'
+        goal_handle.publish_feedback(feedback_msg)
+
+        self.get_logger().info(
+            f'Box {box_id}: 90% - Returning'
+        )
+
+        if not await self.move_robot(0.0, 0.0, 2):
+            return self.abort_goal(
+                goal_handle,
+                box_id,
+                'returning home'
+            )
+
+        # ---------------------------------------------------------
+        # COMPLETE
+        # ---------------------------------------------------------
+        feedback_msg.progress = 100.0
+        feedback_msg.current_step = 'Complete'
+        goal_handle.publish_feedback(feedback_msg)
 
         goal_handle.succeed()
 
@@ -197,8 +300,22 @@ class PalletizeActionServer(Node):
         result.message = f'Box {box_id} complete.'
 
         self.get_logger().info(
-            f'Box {box_id}: palletizing sequence complete.'
+            f'Box {box_id}: palletizing cycle complete.'
         )
+
+        return result
+
+    def abort_goal(self, goal_handle, box_id, failed_step):
+
+        goal_handle.abort()
+
+        result = PalletizeBox.Result()
+        result.success = False
+        result.message = (
+            f'Box {box_id} failed during {failed_step}.'
+        )
+
+        self.get_logger().error(result.message)
 
         return result
 

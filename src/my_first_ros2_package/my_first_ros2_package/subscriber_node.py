@@ -1,39 +1,67 @@
 #!/usr/bin/env python3
+
 import rclpy
+
 from rclpy.node import Node
 from rclpy.action import ActionClient
+
 from my_robot_interfaces.msg import BoxInfo
-from my_robot_interfaces.srv import SetGripperStatus
 from my_robot_interfaces.action import PalletizeBox
 
 
 class SubscriberNode(Node):
 
     def __init__(self):
-        # Initialize Node with parameters capabilities
         super().__init__('my_sub_node')
 
         self.robot_busy = False
-        self.system_initialized = False  # Distributed handshake flag
+        self.system_initialized = False
 
-        # ==================== PARAMETER DECLARATIONS ====================
-        # Declare local baseline fallbacks before Launch mapping applies
+        # ============================================================
+        # PARAMETERS
+        # ============================================================
+
         self.declare_parameter('max_weight_capacity', 10.0)
         self.declare_parameter('operation_mode', 'AUTO')
 
-        # Read active configurations out to verify file layout overrides
-        max_weight = self.get_parameter('max_weight_capacity').get_parameter_value().double_value
-        self.get_logger().info(f'📋 Parameters initialized. Active max weight threshold: {max_weight}kg')
-        # ================================================================
+        max_weight = (
+            self.get_parameter('max_weight_capacity')
+            .get_parameter_value()
+            .double_value
+        )
 
-        # 1. Initialize Communication Handlers
-        self.gripper_client = self.create_client(SetGripperStatus, 'set_gripper_status')
-        self.action_client = ActionClient(self, PalletizeBox, 'palletize_box')
+        op_mode = (
+            self.get_parameter('operation_mode')
+            .get_parameter_value()
+            .string_value
+        )
 
-        # 2. Non-blocking checking timer loop running every 1.0 seconds
-        self.connection_timer = self.create_timer(1.0, self.check_system_connections)
+        self.get_logger().info(
+            f'📋 Parameters initialized | '
+            f'Mode: {op_mode} | '
+            f'Max weight: {max_weight}kg'
+        )
 
-        # 3. Initialize Industrial Topic Subscriber
+        # ============================================================
+        # PALLETIZE ACTION CLIENT
+        # ============================================================
+
+        self.action_client = ActionClient(
+            self,
+            PalletizeBox,
+            'palletize_box'
+        )
+
+        # Check action-server availability without blocking startup.
+        self.connection_timer = self.create_timer(
+            1.0,
+            self.check_system_connections
+        )
+
+        # ============================================================
+        # BOX DETECTION SUBSCRIBER
+        # ============================================================
+
         self.subscription = self.create_subscription(
             BoxInfo,
             'box_chatter',
@@ -42,100 +70,200 @@ class SubscriberNode(Node):
         )
 
     def check_system_connections(self):
-        """Asynchronously checks service and action servers connectivity without blocking"""
-        if not self.gripper_client.service_is_ready():
-            self.get_logger().info('⏳ Waiting for Gripper Service Server to come online...')
-            return
 
         if not self.action_client.wait_for_server(timeout_sec=0.0):
-            self.get_logger().info('⏳ Waiting for Palletize Action Server to come online...')
-            return
-
-        # Once both distributed endpoints are verified active
-        self.get_logger().info('⚙️ SYSTEM READY: Distributed automation loop connected successfully.')
-        self.system_initialized = True
-        self.connection_timer.cancel()  # Release memory resources by stopping checking loop
-
-    def listener_callback(self, msg):
-        if not self.system_initialized or self.robot_busy:
-            return
-
-        max_weight = self.get_parameter('max_weight_capacity').get_parameter_value().double_value
-        op_mode = self.get_parameter('operation_mode').get_parameter_value().string_value
-
-        self.get_logger().info(
-            f'📥 Box #{msg.box_id} detected | Wt: {msg.weight}kg | '
-            f'[Profile -> Mode: {op_mode}, Max Cap: {max_weight}kg]'
-        )
-
-        # Dynamic Parameters Safety Interlock Gate
-        if msg.weight > max_weight:
-            self.get_logger().warning(
-                f'⚠️ OVERLOAD DETECTED: Box #{msg.box_id} ({msg.weight}kg) exceeds '
-                f'safety threshold ({max_weight}kg). Request denied!'
+            self.get_logger().info(
+                '⏳ Waiting for Palletize Action Server '
+                'to come online...'
             )
             return
 
-        if msg.status == 'In Queue':
-            self.robot_busy = True
-            self.get_logger().info(f'🏁 Executing sequential workflow under [{op_mode}] control layout...')
-            self.call_gripper_service(True, msg.box_id)
+        self.system_initialized = True
 
-    # ==================== SERVICE HANDLERS (GRIPPER) ====================
-    def call_gripper_service(self, activate_state, box_id):
-        req = SetGripperStatus.Request()
-        req.activate = activate_state
-        future = self.gripper_client.call_async(req)
-        future.add_done_callback(lambda f: self.gripper_response_callback(f, activate_state, box_id))
+        self.get_logger().info(
+            '⚙️ SYSTEM READY: Palletizing supervisor '
+            'connected successfully.'
+        )
 
-    def gripper_response_callback(self, future, activate_state, box_id):
-        try:
-            response = future.result()
-            if response.success:
-                self.get_logger().info(f'🧲 Gripper Service Receipt: {response.message}')
-                if activate_state:
-                    self.send_palletize_goal(box_id)
-                else:
-                    self.get_logger().info(f'🏁 Box #{box_id} cycle accomplished successfully.\n')
-                    self.robot_busy = False
-            else:
-                self.get_logger().error('❌ Gripper failed to execute hardware change.')
-                self.robot_busy = False
-        except Exception as e:
-            self.get_logger().error(f'❌ Gripper communication breakdown: {e}')
-            self.robot_busy = False
+        self.connection_timer.cancel()
 
-    # ==================== ACTION HANDLERS (MOTION) ====================
+    def listener_callback(self, msg):
+
+        # Ignore boxes until the action server is ready.
+        if not self.system_initialized:
+            return
+
+        # Current implementation processes one box at a time.
+        if self.robot_busy:
+            self.get_logger().warning(
+                f'⏳ Robot busy. Box #{msg.box_id} ignored.'
+            )
+            return
+
+        max_weight = (
+            self.get_parameter('max_weight_capacity')
+            .get_parameter_value()
+            .double_value
+        )
+
+        op_mode = (
+            self.get_parameter('operation_mode')
+            .get_parameter_value()
+            .string_value
+        )
+
+        self.get_logger().info(
+            f'📥 Box #{msg.box_id} detected | '
+            f'Wt: {msg.weight}kg | '
+            f'[Mode: {op_mode}, Max: {max_weight}kg]'
+        )
+
+        # ============================================================
+        # SAFETY / WORKFLOW GATES
+        # ============================================================
+
+        if op_mode != 'AUTO':
+            self.get_logger().warning(
+                f'⚠️ Box #{msg.box_id} not processed because '
+                f'operation mode is [{op_mode}], not [AUTO].'
+            )
+            return
+
+        if msg.weight > max_weight:
+            self.get_logger().warning(
+                f'⚠️ OVERLOAD DETECTED: '
+                f'Box #{msg.box_id} ({msg.weight}kg) exceeds '
+                f'safety threshold ({max_weight}kg). '
+                f'Request denied.'
+            )
+            return
+
+        if msg.status != 'In Queue':
+            self.get_logger().warning(
+                f'⚠️ Box #{msg.box_id} ignored because '
+                f'status is [{msg.status}].'
+            )
+            return
+
+        # ============================================================
+        # START PALLETIZING CYCLE
+        # ============================================================
+
+        self.robot_busy = True
+
+        self.get_logger().info(
+            f'🏁 Starting palletizing cycle for Box #{msg.box_id}...'
+        )
+
+        self.send_palletize_goal(msg.box_id)
+
     def send_palletize_goal(self, box_id):
+
         goal_msg = PalletizeBox.Goal()
         goal_msg.box_id = box_id
-        send_goal_future = self.action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
-        send_goal_future.add_done_callback(lambda f: self.goal_response_callback(f, box_id))
+
+        send_goal_future = self.action_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
+        )
+
+        send_goal_future.add_done_callback(
+            lambda future:
+            self.goal_response_callback(future, box_id)
+        )
 
     def goal_response_callback(self, future, box_id):
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('❌ Path planning goal rejected by Server.')
+
+        try:
+            goal_handle = future.result()
+
+            if not goal_handle.accepted:
+                self.get_logger().error(
+                    f'❌ Palletize action goal rejected '
+                    f'for Box #{box_id}.'
+                )
+
+                self.robot_busy = False
+                return
+
+            self.get_logger().info(
+                f'✅ Palletize action goal accepted '
+                f'for Box #{box_id}.'
+            )
+
+            result_future = goal_handle.get_result_async()
+
+            result_future.add_done_callback(
+                lambda future:
+                self.get_result_callback(future, box_id)
+            )
+
+        except Exception as exc:
+
+            self.get_logger().error(
+                f'❌ Failed to send palletize goal '
+                f'for Box #{box_id}: {exc}'
+            )
+
             self.robot_busy = False
-            return
-        get_result_future = goal_handle.get_result_async()
-        get_result_future.add_done_callback(lambda f: self.get_result_callback(f, box_id))
 
     def feedback_callback(self, feedback_msg):
+
         feedback = feedback_msg.feedback
-        self.get_logger().info(f'📊 [Motion Progress]: {feedback.progress}% | Active Step: {feedback.current_step}')
+
+        self.get_logger().info(
+            f'📊 [Palletize Progress]: '
+            f'{feedback.progress}% | '
+            f'Active Step: {feedback.current_step}'
+        )
 
     def get_result_callback(self, future, box_id):
-        self.get_logger().info(f'🔓 Destination reached. Shutting down vacuum suction...')
-        self.call_gripper_service(False, box_id)
+
+        try:
+            result_response = future.result()
+            result = result_response.result
+
+            if result.success:
+
+                self.get_logger().info(
+                    f'🏁 Box #{box_id} cycle accomplished '
+                    f'successfully: {result.message}'
+                )
+
+            else:
+
+                self.get_logger().error(
+                    f'❌ Box #{box_id} palletizing cycle failed: '
+                    f'{result.message}'
+                )
+
+        except Exception as exc:
+
+            self.get_logger().error(
+                f'❌ Failed to receive palletize result '
+                f'for Box #{box_id}: {exc}'
+            )
+
+        finally:
+            # Always release the supervisor for the next box.
+            self.robot_busy = False
 
 
 def main(args=None):
+
     rclpy.init(args=args)
+
     node = SubscriberNode()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        rclpy.spin(node)
+
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
