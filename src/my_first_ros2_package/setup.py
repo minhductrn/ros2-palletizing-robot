@@ -13,6 +13,8 @@ setup(
         # THÊM DÒNG DƯỚI ĐÂY ĐỂ ĐƯA FILE LAUNCH VÀO HỆ THỐNG
         ('share/' + package_name + '/launch', ['launch/my_nodes_launch.py']),
         ('share/' + package_name + '/config', ['config/params.yaml']),
+        ('share/' + package_name + '/urdf', ['urdf/palletizing_robot.urdf']),
+        ('share/' + package_name + '/rviz', ['rviz/robot_config.rviz']),
     ],
     package_data={'': ['py.typed']},
     install_requires=['setuptools'],

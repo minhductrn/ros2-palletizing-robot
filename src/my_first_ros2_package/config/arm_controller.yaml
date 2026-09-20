@@ -1,0 +1,12 @@
+arm_controller:
+  ros__parameters:
+    joints:
+      - base_to_torso
+      - torso_to_arm
+
+    command_interfaces:
+      - position
+
+    state_interfaces:
+      - position
+      - velocity
