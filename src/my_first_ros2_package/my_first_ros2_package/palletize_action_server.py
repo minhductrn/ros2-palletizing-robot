@@ -22,7 +22,7 @@ class PalletizeActionServer(Node):
     def __init__(self):
         super().__init__('my_action_server_node')
 
-        # Real robot trajectory controller
+        # Robot trajectory controller
         self.arm_client = ActionClient(
             self,
             FollowJointTrajectory,
@@ -64,7 +64,7 @@ class PalletizeActionServer(Node):
         self,
         torso_angle,
         arm_angle,
-        duration_sec=2
+        duration_sec=4
     ):
         """Send a trajectory to JointTrajectoryController."""
 
@@ -95,7 +95,8 @@ class PalletizeActionServer(Node):
         self.get_logger().info(
             f'Moving robot -> '
             f'torso={torso_angle:.2f}, '
-            f'arm={arm_angle:.2f}'
+            f'arm={arm_angle:.2f}, '
+            f'duration={duration_sec}s'
         )
 
         trajectory_goal_handle = await self.arm_client.send_goal_async(
@@ -189,7 +190,7 @@ class PalletizeActionServer(Node):
             f'Box {box_id}: 10% - Moving to pick'
         )
 
-        if not await self.move_robot(0.0, -1.2, 2):
+        if not await self.move_robot(0.0, -1.2, 4):
             return self.abort_goal(
                 goal_handle,
                 box_id,
@@ -225,7 +226,7 @@ class PalletizeActionServer(Node):
             f'Box {box_id}: 50% - Moving to pallet'
         )
 
-        if not await self.move_robot(1.57, 0.2, 2):
+        if not await self.move_robot(1.57, 0.2, 4):
             return self.abort_goal(
                 goal_handle,
                 box_id,
@@ -243,7 +244,7 @@ class PalletizeActionServer(Node):
             f'Box {box_id}: 70% - Placing'
         )
 
-        if not await self.move_robot(1.57, -0.9, 2):
+        if not await self.move_robot(1.57, -0.9, 4):
             return self.abort_goal(
                 goal_handle,
                 box_id,
@@ -279,7 +280,7 @@ class PalletizeActionServer(Node):
             f'Box {box_id}: 90% - Returning'
         )
 
-        if not await self.move_robot(0.0, 0.0, 2):
+        if not await self.move_robot(0.0, 0.0, 4):
             return self.abort_goal(
                 goal_handle,
                 box_id,

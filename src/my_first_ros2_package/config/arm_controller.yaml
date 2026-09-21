@@ -10,3 +10,15 @@ arm_controller:
     state_interfaces:
       - position
       - velocity
+
+    interpolate_from_desired_state: true
+
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 5.0
+
+      base_to_torso:
+        goal: 0.02
+
+      torso_to_arm:
+        goal: 0.02

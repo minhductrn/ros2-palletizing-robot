@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from collections import deque
+
 import rclpy
 
 from rclpy.node import Node
@@ -16,6 +18,9 @@ class SubscriberNode(Node):
 
         self.robot_busy = False
         self.system_initialized = False
+
+        # FIFO queue for boxes waiting to be processed.
+        self.box_queue = deque()
 
         # ============================================================
         # PARAMETERS
@@ -87,17 +92,13 @@ class SubscriberNode(Node):
 
         self.connection_timer.cancel()
 
+    # ================================================================
+    # BOX INPUT
+    # ================================================================
+
     def listener_callback(self, msg):
 
-        # Ignore boxes until the action server is ready.
         if not self.system_initialized:
-            return
-
-        # Current implementation processes one box at a time.
-        if self.robot_busy:
-            self.get_logger().warning(
-                f'⏳ Robot busy. Box #{msg.box_id} ignored.'
-            )
             return
 
         max_weight = (
@@ -113,8 +114,8 @@ class SubscriberNode(Node):
         )
 
         self.get_logger().info(
-            f'📥 Box #{msg.box_id} detected | '
-            f'Wt: {msg.weight}kg | '
+            f'📦 Box #{msg.box_id} detected | '
+            f'Weight: {msg.weight}kg | '
             f'[Mode: {op_mode}, Max: {max_weight}kg]'
         )
 
@@ -146,16 +147,50 @@ class SubscriberNode(Node):
             return
 
         # ============================================================
-        # START PALLETIZING CYCLE
+        # ADD VALID BOX TO FIFO QUEUE
         # ============================================================
+
+        self.box_queue.append(msg)
+
+        self.get_logger().info(
+            f'📥 Box #{msg.box_id} added to queue | '
+            f'Queue depth: {len(self.box_queue)}'
+        )
+
+        # If the robot is available, start immediately.
+        self.process_next_box()
+
+    # ================================================================
+    # FIFO QUEUE PROCESSING
+    # ================================================================
+
+    def process_next_box(self):
+
+        # Robot is already processing another box.
+        if self.robot_busy:
+            return
+
+        # No boxes are waiting.
+        if not self.box_queue:
+            return
+
+        # FIFO:
+        # popleft() retrieves the oldest box in the queue.
+        next_box = self.box_queue.popleft()
 
         self.robot_busy = True
 
         self.get_logger().info(
-            f'🏁 Starting palletizing cycle for Box #{msg.box_id}...'
+            f'🏁 Starting palletizing cycle for '
+            f'Box #{next_box.box_id} | '
+            f'Remaining queue: {len(self.box_queue)}'
         )
 
-        self.send_palletize_goal(msg.box_id)
+        self.send_palletize_goal(next_box.box_id)
+
+    # ================================================================
+    # PALLETIZE ACTION
+    # ================================================================
 
     def send_palletize_goal(self, box_id):
 
@@ -178,12 +213,17 @@ class SubscriberNode(Node):
             goal_handle = future.result()
 
             if not goal_handle.accepted:
+
                 self.get_logger().error(
                     f'❌ Palletize action goal rejected '
                     f'for Box #{box_id}.'
                 )
 
                 self.robot_busy = False
+
+                # Try the next waiting box.
+                self.process_next_box()
+
                 return
 
             self.get_logger().info(
@@ -206,6 +246,9 @@ class SubscriberNode(Node):
             )
 
             self.robot_busy = False
+
+            # Continue with the next queued box.
+            self.process_next_box()
 
     def feedback_callback(self, feedback_msg):
 
@@ -245,8 +288,17 @@ class SubscriberNode(Node):
             )
 
         finally:
-            # Always release the supervisor for the next box.
+
+            # Current box has finished.
             self.robot_busy = False
+
+            self.get_logger().info(
+                f'📦 Queue depth after cycle: '
+                f'{len(self.box_queue)}'
+            )
+
+            # Automatically start the next waiting box.
+            self.process_next_box()
 
 
 def main(args=None):

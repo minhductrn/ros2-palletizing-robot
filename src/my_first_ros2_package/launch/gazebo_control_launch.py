@@ -22,9 +22,10 @@ def generate_launch_description():
     with open(urdf_file, 'r') as file:
         robot_description = file.read()
 
-    # Start Gazebo
+    # Start Gazebo in headless/server-only mode.
+    # This avoids the Gazebo GUI / WSLg display instability.
     gazebo = ExecuteProcess(
-        cmd=['gz', 'sim', '-r', 'empty.sdf'],
+        cmd=['gz', 'sim', '-s', '-r', 'empty.sdf'],
         output='screen'
     )
 
