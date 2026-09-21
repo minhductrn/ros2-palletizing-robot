@@ -1,269 +1,1390 @@
-# ros2-palletizing-robot
-ROS 2 robotics learning project
-ROS 2 Palletizing Robot Learning
+# ROS 2 Palletizing Robot Learning Project
 
-Name: Minh Duc Tran - Robots Operator @ tutorintelligence.com
+**Author:** Minh Duc Tran  
+**Role:** Robot Operator @ Tutor Intelligence  
+**Repository:** `ros2-palletizing-robot`
 
-This is my hands-on robotics learning project using Python, ROS 2, and robotics simulation, with the long-term goal of working with palletizing robots.
+This is a hands-on robotics learning project built with **ROS 2, Python, Gazebo, and ros2_control**.
 
-Development Environment
+The goal is to gradually build a realistic industrial palletizing system while learning the complete ROS 2 robotics workflow:
 
-    OS: Ubuntu 26.04.1 LTS (Resolute)
-    Environment: Windows 11 + WSL2
-    ROS 2: Lyrical Luth
-    Programming: Python 3
-    IDE: Visual Studio Code
-    Build System: Colcon
-    Version Control: Git + GitHub
-
-Workspace
-
-    ~/ros2_ws
-
-ROS 2 Packages
-
-1. **`my_robot_interfaces`**: An `**ament_cmake**` package dedicated to compiling custom ROS 2 messages, services, and actions.
-2. **`my_first_ros2_package`**: An `**ament_python**` package containing execution scripts for our synchronized simulation nodes.
-
-Current package structure:
-
-    ros2_ws/
-    ├── src/
-    │   ├── my_robot_interfaces/
-    │   │   ├── msg/
-    │   │   │   └── BoxInfo.msg
-    │   │   ├── srv/
-    │   │   │   └── SetGripperStatus.srv
-    │   │   ├── action/
-    │   │   │   └── PalletizeBox.action
-    │   │   ├── CMakeLists.txt
-    │   │   └── package.xml
-    │   │
-    │   └── my_first_ros2_package/
-    │       ├── my_first_ros2_package/
-    │       │   ├── __init__.py
-    │       │   ├── hello_node.py
-    │       │   ├── publisher_node.py
-    │       │   ├── subscriber_node.py
-    │       │   ├── gripper_service_node.py
-    │       │   └── palletize_action_server.py
-    │       │
-    │       ├── launch/
-    │       │   └── my_nodes_launch.py
-    │       │
-    │       ├── config/
-    │       │   └── params.yaml
-    │       │
-    │       ├── urdf/
-    │       │   └── palletizing_robot.urdf
-    │       │
-    │       ├── package.xml
-    │       ├── setup.py
-    │       └── setup.cfg
-    │
-    ├── build/
-    ├── install/
-    └── log/
-
-What I Have Learned
-1. ROS 2 Node
-
-Created standard Python ROS 2 execution targets using `rclpy` to compartmentalize robot software features.
-
-2. Custom Message Interface (`BoxInfo.msg`)
-
-Designed a custom interface layout to handle industrial telemetry data streams containing kinematics payloads:
 ```text
-int32 box_id       # Sequence unique counter
-float64 x          # 3D position coordinate (X-axis in meters)
-float64 y          # 3D position coordinate (Y-axis in meters)
-float64 z          # 3D position coordinate (Z-axis in meters)
-float64 weight     # Package mass payload (in kg)
-string status      # Operational cycle flag ('In Queue' / 'Placed on Pallet')
+Box Detection
+      ↓
+Supervisor
+      ↓
+FIFO Queue
+      ↓
+ROS 2 Action
+      ↓
+Robot Motion
+      ↓
+Gripper
+      ↓
+Gazebo Simulation
 ```
 
-3. Custom Service Interface (`SetGripperStatus.srv`)
-
-Developed a Request-Response interaction architecture to safely change the pneumatic end-effector state:
-```text
-bool activate      # Request: True to engage suction, False to release
 ---
-bool success       # Response: Execution outcome affirmation
-string message     # Response: Status log breakdown text
+
+# 1. Development Environment
+
+- **Host OS:** Windows 11
+- **Linux Environment:** WSL2
+- **Ubuntu:** 26.04.1 LTS (Resolute)
+- **ROS 2:** Lyrical Luth
+- **Programming Language:** Python 3
+- **IDE:** Visual Studio Code
+- **Build System:** Colcon
+- **Version Control:** Git + GitHub
+- **Simulation:** Gazebo Sim 10
+- **Robot Control:** ros2_control + gz_ros2_control
+
+Workspace:
+
+```bash
+~/ros2_ws
 ```
 
-4. Custom Action Interface (`PalletizeBox.action`)
+ROS environment:
 
-Built a high-level asynchronous long-running task to manage path-planning cycles with real-time state feedback tracking:
-```text
-int32 box_id               # Goal: Identifier target of the box
+```bash
+source /opt/ros/lyrical/setup.bash
+source ~/ros2_ws/install/setup.bash
+```
+
 ---
-bool success               # Result: Cycle accomplishment validation
-string message             # Result: Complete process summary status
----
-float32 progress           # Feedback: Completion status scale (0% - 100%)
-string current_step        # Feedback: Current execution phase ('Picking', 'Moving to pallet', etc.)
-```
 
-5. Autonomous Closed-Loop Event-Driven Pipeline
+# 2. Project Architecture
 
-Integrated **Topics**, **Services**, and **Actions** into a single fully-automated logistics design containing **4 concurrent processes**:
-*   **`my_pub_node`**: Spawns real-time randomized box geometry configurations and streams them over the `/box_chatter` topic.
-*   **`my_sub_node`**: Acts as the central pipeline controller. When a box has a status of `In Queue`, it locks system execution flags, triggers the **Service Client** to engage the gripper, and kicks off the **Action Client** to orchestrate path-planning telemetry.
-*   **`my_gripper_srv_node`**: Operates as a Service Server controlling vacuum suction cups and responds instantly to activation requests.
-*   **`my_action_server_node`**: Functions as an Action Server, executing the sequential kinematic progression (`Picking` ➔ `Moving to pallet` ➔ `Placing` ➔ `Returning`) and feeding back active step milestones.
-
-### 🔄 Sequential Automation Loop Workflow
+Current system architecture:
 
 ```text
-       [ my_pub_node ]
-              │
-              │  (Topic: /box_chatter)
-              ▼  Publishes: Box #ID [Status: In Queue]
-       [ my_sub_node ] (Central Controller)
-              │
-              ├─► [Step 1: SERVICE CALL] ──► [ gripper_service_node ] (Suction ON)
-              │   ▲ Wait for Response: "Box secured" ◄────┘
-              │
-              ├─► [Step 2: ACTION GOAL] ───► [ palletize_action_server ] (Robot Motion)
-              │   ▲ Track Progress Feedback (10% ➔ 90%) ◄─┘
-              │   │
-              │   ▼ (On Goal Achieved: 100% Progress)
-              │
-              └─► [Step 3: SERVICE CALL] ──► [ gripper_service_node ] (Suction OFF)
-                  ▲ Wait for Response: "Box released" ◄───┘
-                  │
-                  ▼ (System State Reset: robot_busy = False)
-         [ READY FOR NEXT CYCLE ]
+Publisher / Simulated Box Sensor
+              |
+              | BoxInfo
+              v
+Subscriber / Palletizing Supervisor
+              |
+              | FIFO Queue
+              v
+      PalletizeBox Action
+              |
+              v
+     Palletize Action Server
+        |               |
+        |               +----> Gripper Service
+        |
+        +----> FollowJointTrajectory
+                      |
+                      v
+               arm_controller
+                      |
+                      v
+                ros2_control
+                      |
+                      v
+               gz_ros2_control
+                      |
+                      v
+                 Gazebo Robot
+                      |
+                      v
+          joint_state_broadcaster
+                      |
+                      v
+               /joint_states
+                      |
+                      v
+          robot_state_publisher
 ```
 
-![Sequential Automation Loop](ros2-sequential-automation-loop.png)
+The current palletizing sequence is:
 
-6. ROS 2 Communication Graph
+```text
+Move to PICK
+      ↓
+Gripper ON
+      ↓
+Move to PALLET
+      ↓
+Move to PLACE
+      ↓
+Gripper OFF
+      ↓
+Return HOME
+```
 
-The system communication pipeline verified and visualised using **`rqt_graph`**:
+---
 
-![ROS 2 Network Graph](rosgraph.png)
+# 3. ROS 2 Packages
 
-7. Automated Orchestrated Launch Execution & Central Parameters
+The workspace currently contains two main packages.
 
-Utilized a centralized `my_nodes_launch.py` script to orchestrate the execution lifecycles of all active system nodes concurrently while feeding custom operational thresholds (`max_weight_capacity` and `operation_mode`) cleanly via an external `params.yaml` configuration profile.
+## 3.1 `my_first_ros2_package`
 
-8. URDF Linkage Modeling & RViz2 3D Graphical Visualization
+Main Python robotics package.
 
-Designed a custom unified kinematic robot tree definition file (`palletizing_robot.urdf`) containing interlocking structural links (`base_link`, `torso_link`, `arm_link`) and operational joints (`continuous` and `revolute`). Integrated real-time visualization nodes (`robot_state_publisher`, `joint_state_publisher_gui`) alongside **RViz2** inside the orchestrating launch sequence to simulate arm configurations graphically on a 3D interface viewport.
+Important nodes:
 
-Useful Commands
-Source ROS 2
+```text
+hello_node
+publisher_node
+subscriber_node
+gripper_service_node
+palletize_action_server
+```
 
-    source /opt/ros/lyrical/setup.bash
+Important directories:
 
-Build workspace
+```text
+my_first_ros2_package/
+├── config/
+├── launch/
+├── my_first_ros2_package/
+├── urdf/
+├── package.xml
+├── setup.cfg
+└── setup.py
+```
 
-    cd ~/ros2_ws
-    colcon build --symlink-install
+---
 
-Source workspace
+## 3.2 `my_robot_interfaces`
 
-    source install/setup.bash
+Custom ROS 2 interfaces package.
 
-Start the complete autonomous assembly line & 3D simulator
+It currently contains:
 
-    ros2 launch my_first_ros2_package my_nodes_launch.py
+```text
+msg/
+srv/
+action/
+```
 
-Inspect custom interfaces
+---
 
-    ros2 interface show my_robot_interfaces/msg/BoxInfo
-    ros2 interface show my_robot_interfaces/srv/SetGripperStatus
-    ros2 interface show my_robot_interfaces/action/PalletizeBox
+# 4. Custom ROS 2 Interfaces
 
-Manipulate Parameters dynamically at runtime
+## 4.1 `BoxInfo.msg`
 
-    ros2 param get /my_sub_node max_weight_capacity
-    ros2 param set /my_sub_node max_weight_capacity 15.0
+```text
+int32 box_id
+float64 x
+float64 y
+float64 z
+float64 weight
+string status
+```
 
-Learning Roadmap
+This message represents information about a detected box.
 
-My current learning path:
+---
 
-        Python
-        ↓
-        ROS 2 Fundamentals
-        ↓
-        Nodes
-        ↓
-        Topics
-        ↓
-        Publishers / Subscribers
-        ↓
-        Custom Messages (.msg)
-        ↓
-        Services (.srv)
-        ↓
-        Actions (.action)
-        ↓
-        Parameters
-        ↓
-        Launch Files
-        ↓
-        TF2
-        ↓
-        URDF
-        ↓
-        Gazebo Simulation
-        ↓
-        ros2_control
-        ↓
-        MoveIt 2
-        ↓
-        Computer Vision
-        ↓
-        Palletizing Robot
+## 4.2 `SetGripperStatus.srv`
 
-Goal
+```text
+bool activate
+---
+bool success
+string message
+```
 
-The long-term goal of this project is to develop practical robotics skills that can be applied to industrial palletizing robots, including:
+The service is used to activate or deactivate the simulated suction gripper.
 
-    Robot operation
-    ROS 2 programming
-    Robot communication
-    Sensor integration
-    Computer vision
-    Robot motion planning
-    Simulation
-    Robot control
-    Troubleshooting and system monitoring
+---
 
-Progress
+## 4.3 `PalletizeBox.action`
+
+```text
+int32 box_id
+---
+bool success
+string message
+---
+float32 progress
+string current_step
+```
+
+The palletizing action sends a box ID to the robot and provides progress feedback during the palletizing cycle.
+
+---
+
+# 5. Publisher Node
+
+The publisher acts as a simulated box sensor.
+
+It currently publishes logical `BoxInfo` messages approximately every four seconds.
+
+Topic:
+
+```text
+/box_chatter
+```
+
+Each generated box contains:
+
+```text
+box_id
+x
+y
+z
+weight
+status
+```
+
+Example logical workflow:
+
+```text
+New box generated
+      ↓
+BoxInfo published
+      ↓
+Supervisor receives box
+```
+
+The publisher currently generates **logical ROS 2 boxes only**.
+
+Physical Gazebo boxes are not yet spawned by this node.
+
+---
+
+# 6. Subscriber / Palletizing Supervisor
+
+The subscriber acts as the high-level palletizing supervisor.
+
+Its responsibilities are:
+
+```text
+Receive BoxInfo
+      ↓
+Validate operating mode
+      ↓
+Validate box weight
+      ↓
+Add valid box to FIFO queue
+      ↓
+Check robot availability
+      ↓
+Send PalletizeBox action
+      ↓
+Wait for action completion
+      ↓
+Process next queued box
+```
+
+The supervisor uses a FIFO queue:
+
+```text
+First In
+   ↓
+First Out
+```
+
+This allows new boxes to continue arriving while the robot is processing another box.
+
+Example:
+
+```text
+Box 201 → processing
+Box 202 → waiting
+Box 203 → waiting
+
+Box 201 complete
+      ↓
+Box 202 starts
+      ↓
+Box 203 remains queued
+```
+
+This prevents boxes from being discarded simply because the robot is busy.
+
+---
+
+# 7. Palletize Action Server
+
+The palletize action server owns the complete robot motion and gripper sequence.
+
+Current sequence:
+
+```text
+PICK
+  ↓
+GRIPPER ON
+  ↓
+PALLET
+  ↓
+PLACE
+  ↓
+GRIPPER OFF
+  ↓
+HOME
+```
+
+Current fixed robot target positions:
+
+## PICK
+
+```text
+base_to_torso = 0.00
+torso_to_arm  = -1.20
+```
+
+## PALLET
+
+```text
+base_to_torso = 1.57
+torso_to_arm  = 0.20
+```
+
+## PLACE
+
+```text
+base_to_torso = 1.57
+torso_to_arm  = -0.90
+```
+
+## HOME
+
+```text
+base_to_torso = 0.00
+torso_to_arm  = 0.00
+```
+
+Current trajectory duration:
+
+```text
+4 seconds
+```
+
+The action server waits for every trajectory to complete successfully before starting the next stage.
+
+---
+
+# 8. Gripper Service
+
+The current gripper is controlled through:
+
+```text
+SetGripperStatus
+```
+
+Current behavior:
+
+```text
+Gripper ON
+      ↓
+Logical suction enabled
+
+Gripper OFF
+      ↓
+Logical suction disabled
+```
+
+The gripper service is currently a **logical simulation only**.
+
+It does not yet physically attach or detach Gazebo box models.
+
+Physical box attachment is part of the next development stage.
+
+---
+
+# 9. Robot URDF
+
+The robot currently contains the following main links and joints:
+
+```text
+world
+  |
+  +-- base_link
+       |
+       +-- base_to_torso
+            |
+            +-- torso_link
+                 |
+                 +-- torso_to_arm
+                      |
+                      +-- arm_link
+                           |
+                           +-- arm_to_gripper
+                                |
+                                +-- gripper_link
+
+base_link
+  |
+  +-- base_to_conveyor
+       |
+       +-- conveyor_link
+```
+
+Controlled joints:
+
+```text
+base_to_torso
+torso_to_arm
+```
+
+---
+
+# 10. ros2_control
+
+The robot uses `gz_ros2_control` with position command interfaces.
+
+Command interfaces:
+
+```text
+base_to_torso/position
+torso_to_arm/position
+```
+
+State interfaces:
+
+```text
+base_to_torso/position
+base_to_torso/velocity
+
+torso_to_arm/position
+torso_to_arm/velocity
+```
+
+Controller:
+
+```text
+joint_trajectory_controller/JointTrajectoryController
+```
+
+Controller update rate:
+
+```text
+100 Hz
+```
+
+---
+
+# 11. Stable Controller Configuration
+
+Current Gazebo position-control gain:
+
+```yaml
+position_proportional_gain: 0.1
+```
+
+Current trajectory controller behavior:
+
+```yaml
+interpolate_from_desired_state: true
+```
+
+Current goal constraints:
+
+```yaml
+constraints:
+  stopped_velocity_tolerance: 0.02
+  goal_time: 5.0
+
+  base_to_torso:
+    goal: 0.02
+
+  torso_to_arm:
+    goal: 0.02
+```
+
+The `torso_to_arm` joint currently uses:
+
+```text
+effort = 50.0 N·m
+velocity = 1.0 rad/s
+```
+
+The effort limit was increased from 10 N·m because the original value was insufficient for the gravity-loaded arm.
+
+---
+
+# 12. Controller Configuration Files
+
+## `config/controllers.yaml`
+
+Current configuration:
+
+```yaml
+gz_ros_control:
+  ros__parameters:
+    position_proportional_gain: 0.1
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+      params_file: /home/dtran/ros2_ws/src/my_first_ros2_package/config/arm_controller.yaml
+```
+
+---
+
+## `config/arm_controller.yaml`
+
+Current configuration:
+
+```yaml
+arm_controller:
+  ros__parameters:
+    joints:
+      - base_to_torso
+      - torso_to_arm
+
+    command_interfaces:
+      - position
+
+    state_interfaces:
+      - position
+      - velocity
+
+    interpolate_from_desired_state: true
+
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 5.0
+
+      base_to_torso:
+        goal: 0.02
+
+      torso_to_arm:
+        goal: 0.02
+```
+
+---
+
+# 13. Gazebo Simulation
+
+Gazebo is currently separated into a simulation server and an optional GUI client.
+
+This architecture improves stability when running Gazebo through WSL2 / WSLg.
+
+---
+
+## 13.1 Headless Gazebo
+
+Run:
+
+```bash
+ros2 launch my_first_ros2_package gazebo_control_launch.py
+```
+
+This starts:
+
+```text
+Gazebo simulation server
+robot_state_publisher
+robot spawn
+/clock bridge
+joint_state_broadcaster
+arm_controller
+```
+
+The Gazebo GUI is not displayed.
+
+This is the most stable mode for development and testing.
+
+---
+
+## 13.2 Separate Gazebo GUI
+
+The Gazebo graphical client can be started separately:
+
+```bash
+ros2 launch my_first_ros2_package gazebo_gui_launch.py
+```
+
+Architecture:
+
+```text
+Gazebo Server
+      |
+      +------ Gazebo GUI Client
+```
+
+If the GUI has a WSLg display problem, the simulation server can continue running independently.
+
+---
+
+# 14. One-Command Full System Launch
+
+The entire palletizing project can now be started through:
+
+```text
+full_system_launch.py
+```
+
+This starts:
+
+```text
+Gazebo server
+      ↓
+Robot model
+      ↓
+ros2_control
+      ↓
+Controllers
+      ↓
+Gripper service
+      ↓
+Palletize action server
+      ↓
+Subscriber / FIFO supervisor
+      ↓
+Publisher
+      ↓
+Optional Gazebo GUI
+```
+
+---
+
+# 15. Manual Development Mode
+
+Recommended for development and debugging:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=true \
+  auto_publish:=false
+```
+
+This starts the complete system but disables automatic box publishing.
+
+A manual palletizing action can then be sent:
+
+```bash
+ros2 action send_goal \
+  /palletize_box \
+  my_robot_interfaces/action/PalletizeBox \
+  "{box_id: 307}" \
+  --feedback
+```
+
+This mode is useful for testing one robot cycle at a time.
+
+---
+
+# 16. Automatic FIFO Demonstration Mode
+
+To run the automatic supervisor and FIFO system:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=true \
+  auto_publish:=true
+```
+
+The publisher automatically generates boxes.
+
+Example:
+
+```text
+Box 0
+      ↓
+Robot starts processing
+
+Box 1
+      ↓
+FIFO Queue
+
+Box 2
+      ↓
+FIFO Queue
+
+Box 3
+      ↓
+FIFO Queue
+```
+
+When the robot finishes one box, the next box is automatically taken from the queue.
+
+Because the publisher currently generates boxes approximately every four seconds while a palletizing cycle takes much longer, the queue can grow during this demonstration.
+
+This is currently intentional for FIFO testing.
+
+---
+
+# 17. Headless Full System
+
+For maximum simulation stability:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=false \
+  auto_publish:=false
+```
+
+This is useful when the Gazebo graphical interface is not required.
+
+---
+
+# 18. Important Debugging Milestones
+
+Several major issues were identified and corrected during development.
+
+---
+
+## 18.1 Insufficient Joint Effort
+
+Initial joint effort:
+
+```text
+10 N·m
+```
+
+The gravity-loaded arm could not reliably follow larger commands.
+
+The effort limit was increased to:
+
+```text
+50 N·m
+```
+
+After this change, the arm correctly tracked larger positive and negative joint positions.
+
+---
+
+## 18.2 Gazebo Position Tracking
+
+Initial configuration:
+
+```yaml
+position_proportional_gain: 0.01
+```
+
+This caused significant physical tracking lag.
+
+Current configuration:
+
+```yaml
+position_proportional_gain: 0.1
+```
+
+This significantly improved Gazebo joint tracking.
+
+---
+
+## 18.3 Sequential Trajectory Transition Errors
+
+During sequential palletizing movements, `gz_ros_control` originally generated warnings such as:
+
+```text
+Command of at least one joint is out of limits
+```
+
+The issue occurred when a new trajectory began while the measured joint state was slightly behind the previous commanded state.
+
+The controller was updated with:
+
+```yaml
+interpolate_from_desired_state: true
+```
+
+along with explicit goal and stopped-velocity tolerances.
+
+After this change, sequential palletizing movements completed without the previous joint-limit warnings.
+
+---
+
+## 18.4 Gazebo GUI Stability
+
+Running Gazebo server and GUI together under WSLg produced GUI-related crashes.
+
+The architecture was changed to:
+
+```text
+Gazebo Server
+    |
+    +---- Headless simulation
+
+Gazebo GUI
+    |
+    +---- Separate optional client
+```
+
+This allows the simulation to remain alive independently of the GUI.
+
+---
+
+## 18.5 Duplicate ROS / Gazebo Processes
+
+When the new full-system launcher was started while older ROS and Gazebo processes were still running, errors appeared such as:
+
+```text
+Another world of the same name is running
+```
+
+and:
+
+```text
+There may be more than one action server
+```
+
+The solution is to ensure that only one copy of the palletizing system is running.
+
+The master launch should replace manually starting each component separately.
+
+---
+
+# 19. Verified Palletizing Cycle
+
+The following sequence has been successfully tested:
+
+```text
+HOME
+  ↓
+PICK
+  ↓
+Gripper ON
+  ↓
+PALLET
+  ↓
+PLACE
+  ↓
+Gripper OFF
+  ↓
+HOME
+```
+
+Verified result:
+
+```text
+success: true
+Goal finished with status: SUCCEEDED
+```
+
+Recent stable tests completed without the previous `gz_ros_control` joint-limit errors.
+
+---
+
+# 20. Current Project Status
+
+Completed:
+
+```text
+ROS 2 workspace
+Python ROS 2 package
+Custom ROS 2 interface package
+Publisher / subscriber communication
+Custom BoxInfo message
+Custom SetGripperStatus service
+Custom PalletizeBox action
+ROS 2 parameters
+ROS 2 launch system
+URDF robot model
+TF / robot_state_publisher
+Gazebo simulation
+gz_ros2_control integration
+joint_state_broadcaster
+JointTrajectoryController
+Robot trajectory execution
+Logical gripper service
+Palletize action server
+FIFO supervisor queue
+Sequential palletizing automation
+Controller tracking improvements
+Goal tolerances
+Trajectory interpolation fix
+Stable headless Gazebo
+Separate Gazebo GUI client
+One-command full-system launch
+Manual development mode
+Automatic FIFO demonstration mode
+```
+
+---
+
+# 21. Current Limitation
+
+The current system has a working robot-control architecture, but the boxes are still logical ROS 2 data.
+
+Current behavior:
+
+```text
+Logical BoxInfo
+      ↓
+Supervisor
+      ↓
+FIFO Queue
+      ↓
+Palletize Action
+      ↓
+Robot moves
+      ↓
+Logical Gripper
+```
+
+Gazebo does **not yet** show physical cases:
+
+```text
+moving along conveyor
+      ↓
+being picked by robot
+      ↓
+moving with gripper
+      ↓
+being released
+      ↓
+remaining on pallet
+```
+
+The Gazebo robot moves, but the material-handling side of the simulation has not yet been implemented.
+
+---
+
+# 22. Next Development Milestone
+
+The next major goal is to build a physical material-handling simulation.
+
+---
+
+## Stage 1 — Physical Box and Conveyor Simulation
+
+Next tasks:
+
+```text
+Spawn physical boxes in Gazebo
+      ↓
+Assign unique box IDs
+      ↓
+Move boxes along conveyor
+      ↓
+Track box position
+      ↓
+Detect box at pickup location
+      ↓
+Connect physical box with BoxInfo
+```
+
+Target:
+
+```text
+Gazebo Box
+      ↓
+Moving Conveyor
+      ↓
+Pickup Position
+```
+
+---
+
+## Stage 2 — Physical Pick and Place
+
+Implement:
+
+```text
+Robot reaches PICK
+      ↓
+Gripper ON
+      ↓
+Physical box attaches to gripper
+      ↓
+Robot transports box
+      ↓
+Robot reaches PLACE
+      ↓
+Gripper OFF
+      ↓
+Physical box detaches
+      ↓
+Box remains on pallet
+```
+
+---
+
+## Stage 3 — Pallet Stacking
+
+Instead of placing every box at the same position, calculate pallet slots.
+
+Example:
+
+```text
+Layer 1
+
++-----+-----+-----+
+| Box | Box | Box |
++-----+-----+-----+
+| Box | Box | Box |
++-----+-----+-----+
+
+Layer 2
+
++-----+-----+-----+
+| Box | Box | Box |
++-----+-----+-----+
+| Box | Box | Box |
++-----+-----+-----+
+```
+
+Future pallet logic will calculate:
+
+```text
+row
+column
+layer
+x position
+y position
+z position
+```
+
+for each box.
+
+---
+
+# 23. Future Architecture
+
+Target system:
+
+```text
+Physical Box Generator
+          ↓
+Gazebo Conveyor
+          ↓
+Sensor / Detection
+          ↓
+BoxInfo
+          ↓
+Supervisor
+          ↓
+FIFO Queue
+          ↓
+PalletizeBox Action
+          ↓
+Motion Planning
+          ↓
+Robot Controller
+          ↓
+Physical Gripper
+          ↓
+Pick Box
+          ↓
+Transport Box
+          ↓
+Place Box
+          ↓
+Pallet Pattern Generator
+```
+
+---
+
+# 24. Future Development Areas
+
+Planned learning and development areas include:
+
+```text
+Physical Gazebo boxes
+Conveyor movement
+Gazebo contact / attachment
+Dynamic pick coordinates
+Dynamic place coordinates
+Pallet pattern generation
+TF2
+Sensor integration
+Computer vision
+MoveIt 2
+Collision checking
+Motion planning
+ros2_control improvements
+Fault handling
+Recovery states
+Queue backpressure
+Production state machine
+Robot monitoring
+Observability
+```
+
+---
+
+# 25. Build the Workspace
+
+From the workspace:
+
+```bash
+cd ~/ros2_ws
+```
+
+Source ROS 2:
+
+```bash
+source /opt/ros/lyrical/setup.bash
+```
+
+Build:
+
+```bash
+colcon build
+```
+
+Source the workspace:
+
+```bash
+source ~/ros2_ws/install/setup.bash
+```
+
+---
+
+# 26. Build Only the Main Package
+
+```bash
+cd ~/ros2_ws
+
+source /opt/ros/lyrical/setup.bash
+
+colcon build --packages-select my_first_ros2_package
+
+source ~/ros2_ws/install/setup.bash
+```
+
+---
+
+# 27. Recommended Daily Development Workflow
+
+Open a WSL terminal:
+
+```bash
+cd ~/ros2_ws
+source /opt/ros/lyrical/setup.bash
+source ~/ros2_ws/install/setup.bash
+```
+
+For controlled development:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=true \
+  auto_publish:=false
+```
+
+For automatic FIFO testing:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=true \
+  auto_publish:=true
+```
+
+For stable headless testing:
+
+```bash
+ros2 launch my_first_ros2_package full_system_launch.py \
+  gui:=false \
+  auto_publish:=false
+```
+
+---
+
+# 28. Useful ROS 2 Commands
+
+List nodes:
+
+```bash
+ros2 node list
+```
+
+List topics:
+
+```bash
+ros2 topic list
+```
+
+List services:
+
+```bash
+ros2 service list
+```
+
+List actions:
+
+```bash
+ros2 action list
+```
+
+Check controllers:
+
+```bash
+ros2 control list_controllers
+```
+
+Expected:
+
+```text
+arm_controller          joint_trajectory_controller/JointTrajectoryController  active
+joint_state_broadcaster joint_state_broadcaster/JointStateBroadcaster          active
+```
+
+Check hardware interfaces:
+
+```bash
+ros2 control list_hardware_interfaces -v
+```
+
+Expected command interfaces:
+
+```text
+base_to_torso/position
+torso_to_arm/position
+```
+
+Expected state interfaces:
+
+```text
+base_to_torso/position
+base_to_torso/velocity
+torso_to_arm/position
+torso_to_arm/velocity
+```
+
+---
+
+# 29. Manual Palletize Action Test
+
+Example:
+
+```bash
+ros2 action send_goal \
+  /palletize_box \
+  my_robot_interfaces/action/PalletizeBox \
+  "{box_id: 307}" \
+  --feedback
+```
+
+Expected feedback:
+
+```text
+10%  - Moving to pick
+25%  - Picking
+50%  - Moving to pallet
+70%  - Placing
+80%  - Releasing
+90%  - Returning
+100% - Complete
+```
+
+Expected final result:
+
+```text
+success: true
+Goal finished with status: SUCCEEDED
+```
+
+---
+
+# 30. Git Workflow
+
+Check project status:
+
+```bash
+git status
+```
+
+Review changes:
+
+```bash
+git diff
+```
+
+Stage selected files:
+
+```bash
+git add <file>
+```
+
+Commit:
+
+```bash
+git commit -m "Describe the project update"
+```
+
+Push:
+
+```bash
+git push origin main
+```
+
+Backup and experimental files should not be committed unless intentionally required.
+
+---
+
+# 31. Project Learning Roadmap
+
+The project is being developed incrementally.
+
+```text
 ROS 2 Fundamentals
+      ↓
+Topics
+      ↓
+Services
+      ↓
+Actions
+      ↓
+Parameters
+      ↓
+Launch Files
+      ↓
+Custom Interfaces
+      ↓
+URDF
+      ↓
+TF2
+      ↓
+Gazebo
+      ↓
+ros2_control
+      ↓
+Trajectory Control
+      ↓
+FIFO Automation
+      ↓
+Physical Box Simulation
+      ↓
+Physical Pick and Place
+      ↓
+Pallet Stacking
+      ↓
+MoveIt 2
+      ↓
+Computer Vision
+      ↓
+Advanced Automation
+```
 
-    ☑ Install ROS 2 Lyrical
-    ☑ Configure ROS 2 in WSL2
-    ☑ Create ROS 2 workspace
-    ☑ Create Python ROS 2 package
-    ☑ Create ROS 2 node
-    ☑ Create publisher
-    ☑ Create subscriber
-    ☑ Understand topics
-    ☑ View ROS 2 communication graph
-    ☑ Create launch file
-    ☑ Create Custom Message (.msg) interface package
-    ☑ Implement Request-Response Gripper Services (.srv)
-    ☑ Implement ROS 2 Actions (Closed-loop trajectory feedback pipeline)
-    ☑ Implement ROS 2 Parameters (Dynamic tuning of velocity bounds & weights)
-    ☑ Launch file improvements (Automated central config mapping via share directory)
-    ☑ Implement URDF Linkage Modeling (3-Axis physical kinematics tree design)
-    ☑ Configure RViz2 3D Graphical Visualization Environment
-    ☑ TF2 (Coordinate transformations handling for moving parts)
-    ☑ Build and run ROS 2 package
-    ☑ Push project to GitHub
+---
 
-Next
+# 32. Long-Term Project Goal
 
-    ☐ Gazebo Simulation (Adding physics, collisions, and gravity environments)
-    ☐ ros2_control (Hardware resource abstraction layers connection)
-    ☐ MoveIt 2 (Advanced collision-free path planning & industrial manipulation)
-    ☐ Computer Vision (OpenCV/AI-driven box scanning pose estimation)
-    ☐ Palletizing Robot Simulation
+The long-term goal is to evolve this project from a ROS 2 learning environment into a more realistic palletizing automation architecture:
 
-Learning by building — Python → ROS 2 → Robotics.
+```text
+Perception
+      ↓
+Detection
+      ↓
+Supervisory Control
+      ↓
+Queue Management
+      ↓
+Motion Planning
+      ↓
+Robot Control
+      ↓
+Physical Pick and Place
+      ↓
+Pallet Pattern Generation
+      ↓
+Monitoring
+      ↓
+Fault Detection
+      ↓
+Recovery
+```
+
+Each stage is implemented and tested before moving to the next layer.
+
+The next development milestone is:
+
+> **Physical boxes moving on the Gazebo conveyor, followed by physical gripper attachment and pallet stacking.**
