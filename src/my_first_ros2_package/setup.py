@@ -17,14 +17,19 @@ setup(
             'share/ament_index/resource_index/packages',
             ['resource/' + package_name]
         ),
+
         (
             'share/' + package_name,
             ['package.xml']
         ),
+
+        # Install all ROS 2 launch files automatically
         (
             os.path.join('share', package_name, 'launch'),
             glob('launch/*.py')
         ),
+
+        # Configuration files
         (
             os.path.join('share', package_name, 'config'),
             [
@@ -33,10 +38,20 @@ setup(
                 'config/arm_controller.yaml',
             ]
         ),
+
+        # Main robot URDF only
         (
             os.path.join('share', package_name, 'urdf'),
             [
                 'urdf/palletizing_robot.urdf'
+            ]
+        ),
+
+        # RViz configuration
+        (
+            os.path.join('share', package_name, 'rviz'),
+            [
+                'rviz/robot_config.rviz'
             ]
         ),
     ],
@@ -53,6 +68,7 @@ setup(
 
     maintainer='MinhDuc Tran',
     maintainer_email='ductm.tran@gmail.com',
+
     description='ROS 2 palletizing robot learning project',
     license='TODO: License declaration',
 
